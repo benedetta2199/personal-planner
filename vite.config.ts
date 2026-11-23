@@ -94,6 +94,27 @@ function devApi(env: Record<string, string>): Plugin {
           send(500, { ok: false, code: 'internal', message: (e as Error).message })
         }
       })
+      server.middlewares.use('/api/planner/sync', async (req, res) => {
+        const send = (status: number, body: unknown) => {
+          res.statusCode = status
+          res.setHeader('Content-Type', 'application/json; charset=utf-8')
+          res.setHeader('Cache-Control', 'no-store')
+          res.end(JSON.stringify(body))
+        }
+        let raw = ''
+        try {
+          for await (const chunk of req) {
+            raw += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk)
+            if (raw.length > 4 * 1024 * 1024) return send(413, { ok: false, code: 'payload_too_large', message: 'Richiesta troppo grande.' })
+          }
+          const body = raw ? JSON.parse(raw) : null
+          const mod = await server.ssrLoadModule('/server/plannerSync.ts')
+          const result = await mod.handlePlannerSync({ method: req.method ?? 'GET', authorization: req.headers.authorization, env, body })
+          send(result.status, result.body)
+        } catch (e) {
+          send(500, { ok: false, code: 'internal', message: (e as Error).message })
+        }
+      })
       server.middlewares.use('/api/finance/payroll', async (req, res) => {
         let raw = ''
         let oversized = false

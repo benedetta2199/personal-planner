@@ -23,26 +23,46 @@ function clone(e: JournalEntry): JournalEntry {
 }
 
 let timer: ReturnType<typeof setTimeout> | null = null
+/** Versione della pagina corrispondente alla bozza (salvata da qui o caricata). */
+let loadedAt: string | undefined = store.get(today)?.updatedAt
+/** La bozza è appena stata caricata dallo store: non va risalvata. */
+let loading = false
 function flush() {
   if (timer) clearTimeout(timer)
   timer = null
   store.save(draft.value)
+  loadedAt = store.get(date.value)?.updatedAt
   savedAt.value = isEmptyEntry(draft.value) ? null : new Date().toISOString()
 }
 watch(draft, () => {
+  if (loading) {
+    loading = false
+    return
+  }
   if (timer) clearTimeout(timer)
   timer = setTimeout(flush, 500)
 }, { deep: true })
 onBeforeUnmount(() => timer && flush())
 
+function load(d: IsoDay) {
+  const e = store.get(d)
+  loading = true
+  draft.value = e ? clone(e) : store.blank(d)
+  loadedAt = e?.updatedAt
+  savedAt.value = e?.updatedAt ?? null
+}
+
 function open(d: IsoDay) {
   if (timer) flush()
   date.value = d
-  const e = store.get(d)
-  draft.value = e ? clone(e) : store.blank(d)
-  savedAt.value = e?.updatedAt ?? null
+  load(d)
   tagInput.value = ''
 }
+
+// Pagina aggiornata altrove (es. arrivata dal foglio Google da un altro dispositivo) senza modifiche in corso qui.
+watch(() => store.get(date.value)?.updatedAt, (u) => {
+  if (!timer && u !== loadedAt) load(date.value)
+})
 
 const prompt = computed(() => PROMPTS[Math.abs(daysBetween('2026-01-01', date.value)) % PROMPTS.length])
 const isSunday = computed(() => isoWeekday(date.value) === 7)
