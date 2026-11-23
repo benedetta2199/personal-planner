@@ -35,6 +35,12 @@ export const ICON_PATHS = {
   settings: 'M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M16 4v4M10 10v4M18 16v4',
   download: 'M12 4v12M7 11l5 5 5-5M4 20h16',
   grid: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
+  clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2',
+  bell: 'M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 21h4',
+  flag: 'M5 21V4M5 4h11l-2 4 2 4H5',
+  flame: 'M12 21c-4 0-6-2.7-6-6 0-4 4-6 4-11 3 2 7 6 7 11 0 3.3-2 6-5 6zM12 21c-1.7 0-3-1.2-3-3 0-2 3-4 3-4s3 2 3 4c0 1.8-1.3 3-3 3z',
+  sun: 'M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4',
+  checkCircle: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM8 12l3 3 5-6',
 } as const
 
 export type IconName = keyof typeof ICON_PATHS
