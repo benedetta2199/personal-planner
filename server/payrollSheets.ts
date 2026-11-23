@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { normalizeKey } from '../src/modules/finance/domain/parsers.js'
-import type { PayrollRecord } from '../src/modules/finance/domain/payroll.js'
+import { PAYROLL_COLUMNS, PAYROLL_DETAIL_COLUMNS, type PayrollRecord } from '../src/modules/finance/domain/payroll.js'
 import {
   columnLetter,
   driveAuthFromEnv,
@@ -33,27 +33,9 @@ export const MAX_PDF_BYTES = 3 * 1024 * 1024
 
 const MONTH_NAMES = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno', 'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre']
 
-/** Intestazioni usate quando il foglio è nuovo (stessi nomi del tuo file storico). */
-export const DEFAULT_HEADERS = [
-  'Mese',
-  'Anno',
-  'Tipo_Busta',
-  'Busta_Aggiuntiva',
-  'Paga_Base',
-  'Ore_Lavorate',
-  'Contributo_IVS_Base',
-  'IRPEF_Imponibile_Base',
-  'IRPEF_Pagata',
-  'Ferie_Restanti',
-  'Permessi_Restanti',
-  'Totale_Competenze',
-  'Totale_Trattenute',
-  'Netto_Busta',
-  'Link_PDF',
-  'Impronta_PDF',
-  'Data_Salvataggio',
-]
-/** Colonne tecniche aggiunte in coda a un foglio esistente se mancano. */
+/** Intestazioni usate quando il foglio è nuovo (stesse colonne del dataset storico del notebook). */
+export const DEFAULT_HEADERS = [...PAYROLL_COLUMNS, 'Link_PDF', 'Impronta_PDF', 'Data_Salvataggio']
+/** Colonne tecniche aggiunte in coda a un foglio esistente se mancano (insieme a quelle del dataset). */
 const APP_HEADERS = ['Link_PDF', 'Impronta_PDF', 'Data_Salvataggio']
 
 export class PayrollSheetError extends Error {
@@ -114,6 +96,18 @@ const COLUMN_VALUES: Record<string, (ctx: RowContext) => Cell | undefined> = {
   datasalvataggio: ({ savedAt }) => savedAt,
 }
 
+/** Colonna normalizzata → nome della voce in record.details. */
+const DETAIL_COLUMNS = new Map(PAYROLL_DETAIL_COLUMNS.map((column) => [normalizeKey(column), column] as const))
+
+function columnValue(header: unknown, ctx: RowContext): Cell | undefined {
+  const key = normalizeKey(header)
+  const getter = COLUMN_VALUES[key]
+  if (getter) return getter(ctx)
+  const detail = DETAIL_COLUMNS.get(key)
+  if (detail) return num(ctx.record.details[detail] ?? null)
+  return undefined
+}
+
 export function validatePayrollRecord(input: unknown): PayrollRecord | null {
   if (!input || typeof input !== 'object') return null
   const raw = input as Record<string, unknown>
@@ -138,6 +132,15 @@ export function validatePayrollRecord(input: unknown): PayrollRecord | null {
     if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || (moneyFields.includes(field) && !Number.isInteger(value))) return null
     values[field] = value
   }
+  const details: Record<string, number> = {}
+  if (raw.details !== undefined && raw.details !== null) {
+    if (typeof raw.details !== 'object' || Array.isArray(raw.details)) return null
+    for (const [column, value] of Object.entries(raw.details as Record<string, unknown>)) {
+      if (!PAYROLL_DETAIL_COLUMNS.includes(column)) continue
+      if (typeof value !== 'number' || !Number.isFinite(value)) return null
+      details[column] = value
+    }
+  }
   const key = `${year}-${String(month).padStart(2, '0')}-${type.toLowerCase().replace(/[^a-z0-9]/g, '')}`
   return {
     recordKey: key,
@@ -154,6 +157,7 @@ export function validatePayrollRecord(input: unknown): PayrollRecord | null {
     irpefPaid: values.irpefPaid,
     vacationRemaining: values.vacationRemaining,
     permitsRemaining: values.permitsRemaining,
+    details,
     sourceHash,
   }
 }
@@ -207,9 +211,7 @@ export function buildRow(headers: unknown[], existing: unknown[] | null, ctx: Ro
     return typeof value === 'number' || typeof value === 'string' ? value : value === undefined || value === null ? '' : String(value)
   })
   headers.forEach((header, i) => {
-    const getter = COLUMN_VALUES[normalizeKey(header)]
-    if (!getter) return
-    const value = getter(ctx)
+    const value = columnValue(header, ctx)
     // Un campo non letto dal PDF non cancella un valore già presente.
     if (value === undefined || (value === '' && existing && row[i] !== '')) return
     row[i] = value
@@ -337,7 +339,8 @@ async function upsertRow(storage: PayrollStorage, spreadsheetId: string, record:
     if (!known.has('anno') || !known.has('mese')) {
       throw new PayrollSheetError('sheet_schema_mismatch', `La prima scheda del foglio deve avere le colonne "Anno" e "Mese" nella riga 1.`, 409)
     }
-    const missing = APP_HEADERS.filter((h) => !known.has(normalizeKey(h)))
+    // Colonne del dataset o tecniche assenti (es. foglio creato con meno colonne): aggiunte in coda.
+    const missing = [...PAYROLL_COLUMNS, ...APP_HEADERS].filter((h) => !known.has(normalizeKey(h)))
     if (missing.length) {
       const start = headers.length + 1
       headers = [...headers, ...missing]

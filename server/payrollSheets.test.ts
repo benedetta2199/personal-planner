@@ -38,6 +38,7 @@ const record = {
   irpefPaid: 12495,
   vacationRemaining: 14.41666,
   permitsRemaining: 2.66666,
+  details: { Contingenza: 524.22, Contributo_IVS_Trattenuta: 61.21, Netto_Busta: 852.52 },
   sourceHash: pdfHash,
 }
 
@@ -97,9 +98,12 @@ describe('payroll archive on Google Drive', () => {
     expect(row.slice(0, 4)).toEqual(['Marzo', 2026, 'Normale', 'False'])
     expect(row).toContain(852.52)
     expect(row).toContain('https://drive/pdf-1')
+    const headerValues = JSON.parse(String(header?.[1]?.body)).values[0] as string[]
+    expect(row[headerValues.indexOf('Contributo_IVS_Trattenuta')]).toBe(61.21)
+    expect(row[headerValues.indexOf('Contingenza')]).toBe(524.22)
   })
 
-  it('updates the matching month in an existing sheet, keeping columns the app does not manage', async () => {
+  it('updates the matching month in an existing sheet, adding the missing dataset columns', async () => {
     const headers = ['Mese', 'Anno', 'Tipo_Busta', 'Contingenza', 'Netto_Busta', 'Link_PDF', 'Impronta_PDF', 'Data_Salvataggio']
     mockGoogle(fetchMock, {
       existing: true,
@@ -110,9 +114,14 @@ describe('payroll archive on Google Drive', () => {
 
     expect(outcome).toMatchObject({ action: 'updated', pdf: 'skipped' })
     const calls = fetchMock.mock.calls as Call[]
-    const update = calls.find(([u, i]) => decodeURIComponent(String(u)).includes("'Foglio1'!A3:H3") && i?.method === 'PUT')
+    const added = calls.find(([u, i]) => decodeURIComponent(String(u)).includes("'Foglio1'!I1:") && i?.method === 'PUT')
+    const addedHeaders = JSON.parse(String(added?.[1]?.body)).values[0] as string[]
+    expect(addedHeaders).toContain('Contributo_IVS_Trattenuta')
+    expect(addedHeaders).not.toContain('Contingenza')
+    const update = calls.find(([u, i]) => decodeURIComponent(String(u)).includes("'Foglio1'!A3:") && i?.method === 'PUT')
     const row = JSON.parse(String(update?.[1]?.body)).values[0]
     expect(row.slice(0, 5)).toEqual(['Marzo', 2026, 'Normale', 524.22, 852.52])
+    expect(row[8 + addedHeaders.indexOf('Contributo_IVS_Trattenuta')]).toBe(61.21)
     expect(calls.some(([u]) => String(u).includes(':append'))).toBe(false)
     expect(calls.some(([u]) => String(u).startsWith('https://www.googleapis.com/upload/'))).toBe(false)
   })

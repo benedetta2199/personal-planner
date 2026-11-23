@@ -188,6 +188,9 @@ export async function readPayrollPdf(file: File): Promise<PayrollExtraction> {
       const y = item.transform[5]
       let group = groups.find((candidate) => Math.abs(candidate.y - y) < 2)
       if (!group) groups.push((group = { y, items: [] }))
+      // Alcuni cedolini simulano il grassetto ristampando lo stesso testo quasi
+      // sovrapposto: si scarta la copia (equivalente di dedupe_chars di pdfplumber).
+      if (group.items.some((other) => other.text === item.str && Math.abs(other.x - x) < 1.5)) continue
       group.items.push({ x, text: item.str })
     }
     for (const group of groups) {

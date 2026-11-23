@@ -577,6 +577,8 @@ export interface MonthInvestmentSummary {
   /** Guadagno o perdita di mercato nel mese, al netto di acquisti e vendite. */
   gain: Cents | null
   gainPct: number | null
+  /** Andamento nel mese: fine del mese precedente (se c'è) + i punti del mese. */
+  points: PortfolioPoint[]
 }
 
 /**
@@ -602,9 +604,11 @@ export function summarizeInvestmentMonth(groups: PositionGroup[], series: Portfo
 
   let start: PortfolioPoint | null = null
   let end: PortfolioPoint | null = null
+  const inMonth: PortfolioPoint[] = []
   for (const p of series) {
     const m = p.date.slice(0, 7)
     if (m < month) start = p
+    if (m === month) inMonth.push(p)
     if (m <= month) end = p
     else break
   }
@@ -625,5 +629,6 @@ export function summarizeInvestmentMonth(groups: PositionGroup[], series: Portfo
     endValue: endInMonth?.value ?? (end && end.value > 0 ? end.value : null),
     gain,
     gainPct,
+    points: inMonth.length && start ? [start, ...inMonth] : inMonth,
   }
 }

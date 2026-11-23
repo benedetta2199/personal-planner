@@ -86,7 +86,7 @@ describe('Apps Script bridge', () => {
       { ...bridgeEnv, GOOGLE_DRIVE_ROOT_FOLDER_ID: 'root' },
       {
         recordKey: '2026-04-normale', year: 2026, month: 4, type: 'Normale', basePay: null, grossPay: 200000, totalDeductions: 32440,
-        netPay: 167560, hoursWorked: 168, inpsTaxable: null, irpefTaxable: null, irpefPaid: null, vacationRemaining: null, permitsRemaining: null, sourceHash: hash,
+        netPay: 167560, hoursWorked: 168, inpsTaxable: null, irpefTaxable: null, irpefPaid: null, vacationRemaining: null, permitsRemaining: null, details: {}, sourceHash: hash,
       },
       { fileName: '04-26.pdf', data: new Uint8Array(pdf) },
     )

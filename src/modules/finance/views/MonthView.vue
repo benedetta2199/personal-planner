@@ -118,57 +118,61 @@ function onSaved(op: Operation | null) {
 
     <!-- Riepilogo ------------------------------------------------------->
     <div class="mv__top">
-      <section class="panel hero" aria-labelledby="mv-balance">
-        <div class="hero__head">
-          <div>
-            <p id="mv-balance" class="hero__label">Saldo di {{ monthName }}</p>
-            <p class="hero__value big-num" :class="s.netCashflow > 0 ? 'pos' : s.netCashflow < 0 ? 'neg' : ''">
-              <span class="hero__arrow" aria-hidden="true">{{ s.netCashflow > 0 ? '▲' : s.netCashflow < 0 ? '▼' : '' }}</span>{{ m(s.netCashflow, true) }}
-            </p>
+      <div class="mv__summary">
+        <section class="panel hero" aria-labelledby="mv-balance">
+          <div class="hero__head">
+            <div>
+              <p id="mv-balance" class="hero__label">Saldo di {{ monthName }}</p>
+              <p class="hero__value big-num" :class="s.netCashflow > 0 ? 'pos' : s.netCashflow < 0 ? 'neg' : ''">
+                <span class="hero__arrow" aria-hidden="true">{{ s.netCashflow > 0 ? '▲' : s.netCashflow < 0 ? '▼' : '' }}</span>{{ m(s.netCashflow, true) }}
+              </p>
+            </div>
+            <RouterLink :to="{ name: 'finance-dash-month' }" class="hero__go" aria-label="Analisi mensile nella panoramica">
+              <UiIcon name="arrowUpRight" :size="26" />
+            </RouterLink>
           </div>
-          <RouterLink :to="{ name: 'finance-dash-month' }" class="hero__go" aria-label="Analisi mensile nella panoramica">
-            <UiIcon name="arrowUpRight" :size="26" />
-          </RouterLink>
-        </div>
-        <p class="muted small">Entrate meno uscite e capitale investito: quanto resta sui conti questo mese.</p>
-        <div class="hero__stats">
-          <div class="hero__stat">
-            <span class="hero__k"><span class="dot" style="background: var(--flow-income)" />Entrate</span>
-            <strong class="num pos">+{{ m(s.income) }}</strong>
+          <p class="muted small">Entrate meno uscite e capitale investito: quanto resta sui conti questo mese.</p>
+          <div class="hero__stats">
+            <div class="hero__stat">
+              <span class="hero__k"><span class="dot" style="background: var(--flow-income)" />Entrate</span>
+              <strong class="num pos">+{{ m(s.income) }}</strong>
+            </div>
+            <div class="hero__stat">
+              <span class="hero__k"><span class="dot" style="background: var(--flow-necessary)" />Uscite</span>
+              <strong class="num neg">−{{ m(s.expenses) }}</strong>
+              <span v-if="expDelta !== null" class="pill" :class="expDelta > 0 ? 'pill--neg' : 'pill--pos'">
+                {{ expDelta > 0 ? '+' : '' }}{{ formatPercent(expDelta, 0) }} vs mese prec.
+              </span>
+            </div>
+            <div class="hero__stat">
+              <span class="hero__k"><span class="dot" style="background: var(--flow-investment)" />Investito</span>
+              <strong class="num">{{ m(s.invested) }}</strong>
+            </div>
           </div>
-          <div class="hero__stat">
-            <span class="hero__k"><span class="dot" style="background: var(--flow-necessary)" />Uscite</span>
-            <strong class="num neg">−{{ m(s.expenses) }}</strong>
-            <span v-if="expDelta !== null" class="pill" :class="expDelta > 0 ? 'pill--neg' : 'pill--pos'">
-              {{ expDelta > 0 ? '+' : '' }}{{ formatPercent(expDelta, 0) }} vs mese prec.
-            </span>
-          </div>
-          <div class="hero__stat">
-            <span class="hero__k"><span class="dot" style="background: var(--flow-investment)" />Investito</span>
-            <strong class="num">{{ m(s.invested) }}</strong>
-          </div>
-        </div>
-      </section>
+        </section>
 
-      <section class="savings" :class="s.savings < 0 ? 'savings--neg' : 'savings--pos'" aria-labelledby="mv-savings">
-        <svg class="savings__deco" viewBox="0 0 100 100" aria-hidden="true"><path d="M50 0 C54 38 62 46 100 50 C62 54 54 62 50 100 C46 62 38 54 0 50 C38 46 46 38 50 0Z" /></svg>
-        <span class="savings__tag">{{ s.savings < 0 ? 'In perdita' : 'Risparmio' }}</span>
-        <p id="mv-savings" class="savings__label">Risparmiato in {{ monthName }}</p>
-        <div class="savings__row">
-          <p class="savings__value big-num">{{ s.savings > 0 ? '▲ ' : s.savings < 0 ? '▼ ' : '' }}{{ m(s.savings, true) }}</p>
-          <span v-if="s.savingsRate !== null" class="pill pill--white">{{ formatPercent(s.savingsRate, 0) }} delle entrate</span>
-        </div>
-        <div class="savings__tiles">
-          <div class="savings__tile">
-            <span>Media spesa / giorno</span>
-            <strong class="num">{{ m(dailyAvg) }}</strong>
+        <section class="savings" :class="s.savings < 0 ? 'savings--neg' : 'savings--pos'" aria-labelledby="mv-savings">
+          <svg class="savings__deco" viewBox="0 0 100 100" aria-hidden="true"><path d="M50 0 C54 38 62 46 100 50 C62 54 54 62 50 100 C46 62 38 54 0 50 C38 46 46 38 50 0Z" /></svg>
+          <span class="savings__tag">{{ s.savings < 0 ? 'In perdita' : 'Risparmio' }}</span>
+          <p id="mv-savings" class="savings__label">Risparmiato in {{ monthName }}</p>
+          <div class="savings__row">
+            <p class="savings__value big-num">{{ s.savings > 0 ? '▲ ' : s.savings < 0 ? '▼ ' : '' }}{{ m(s.savings, true) }}</p>
+            <span v-if="s.savingsRate !== null" class="pill pill--white">{{ formatPercent(s.savingsRate, 0) }} delle entrate</span>
           </div>
-          <div class="savings__tile">
-            <span>Movimenti</span>
-            <strong class="num">{{ s.operationCount }}</strong>
+          <div class="savings__tiles">
+            <div class="savings__tile">
+              <span>Media spesa / giorno</span>
+              <strong class="num">{{ m(dailyAvg) }}</strong>
+            </div>
+            <div class="savings__tile">
+              <span>Movimenti</span>
+              <strong class="num">{{ s.operationCount }}</strong>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      </div>
+
+      <MonthInvestments :month="month" :month-name="monthName" />
     </div>
 
     <!-- Analisi + movimenti --------------------------------------------->
@@ -200,7 +204,6 @@ function onSaved(op: Operation | null) {
           </ul>
         </section>
 
-        <MonthInvestments :month="month" :month-name="monthName" />
       </div>
 
       <section class="panel mv__tx" aria-labelledby="mv-tx">
@@ -248,7 +251,9 @@ function onSaved(op: Operation | null) {
   box-shadow: 0 10px 28px rgba(18, 24, 33, 0.3);
 }
 .mv__fab:active { transform: scale(0.97); }
-.mv__top { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 18px; }
+.mv__top { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 18px; align-items: stretch; }
+/* Le due card si dividono in parti uguali l'altezza della colonna (pari a quella degli investimenti). */
+.mv__summary { display: grid; grid-template-rows: 1fr 1fr; gap: 18px; min-width: 0; }
 .mv__main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 18px; align-items: start; }
 .mv__col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
 
@@ -262,7 +267,7 @@ function onSaved(op: Operation | null) {
   background: var(--brand); color: var(--on-brand); flex-shrink: 0; transition: transform 0.15s ease;
 }
 .hero__go:hover { transform: rotate(45deg); text-decoration: none; }
-.hero__stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 6px; }
+.hero__stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: auto; padding-top: 6px; }
 .hero__stat { display: flex; flex-direction: column; gap: 3px; padding: 12px 14px; border-radius: 18px; background: var(--surface-2); min-width: 0; }
 .hero__stat strong { font-size: 1.15rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hero__stat .pill { align-self: flex-start; font-size: 0.7rem; }
@@ -275,7 +280,7 @@ function onSaved(op: Operation | null) {
 }
 .savings__deco { position: absolute; right: -20px; top: -10px; width: 170px; height: 170px; fill: var(--brand-strong); opacity: 0.55; }
 .savings__tag { position: relative; align-self: flex-start; background: var(--ink); color: var(--brand); border-radius: 999px; padding: 6px 14px; font-size: 0.82rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
-.savings__label { position: relative; margin-top: 18px; font-size: 0.92rem; }
+.savings__label { position: relative; margin-top: 10px; font-size: 0.92rem; }
 .savings__row { position: relative; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .savings__value { font-size: clamp(2rem, 3.4vw, 2.8rem); }
 .savings--pos .savings__value { color: var(--positive-strong); }
@@ -303,6 +308,14 @@ function onSaved(op: Operation | null) {
 }
 @media (max-width: 1100px) {
   .mv__top, .mv__main { grid-template-columns: minmax(0, 1fr); }
+}
+/* Tablet: le due card affiancate, investimenti sotto a tutta larghezza */
+@media (min-width: 761px) and (max-width: 1100px) {
+  .mv__summary { grid-template-rows: none; grid-template-columns: 1fr 1fr; }
+  .hero__stats { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 760px) {
+  .mv__summary { grid-template-rows: none; }
 }
 @media (max-width: 600px) {
   .hero { padding: 20px 18px; }

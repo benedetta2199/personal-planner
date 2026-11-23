@@ -249,6 +249,7 @@ describe('summarizeInvestmentMonth', () => {
     expect(r.gain).toBe(600)
     expect(r.endValue).toBe(17100)
     expect(r.gainPct).toBeCloseTo(600 / (10500 + 6000))
+    expect(r.points.map((p) => p.date)).toEqual(['2026-04-30', '2026-05-04', '2026-05-29'])
   })
 
   it('senza dati nel mese non inventa un rendimento', () => {

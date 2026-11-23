@@ -20,7 +20,7 @@ export const manageTabs: { name: string; label: string }[] = [
   { name: 'finance-manage-categories', label: 'Categorie' },
   { name: 'finance-import', label: 'Importazione' },
   { name: 'finance-reconciliation', label: 'Riconciliazione' },
-  { name: 'finance-payroll', label: 'Cedolini' },
+  { name: 'finance-payroll', label: 'Buste paga' },
   { name: 'finance-manage-data', label: 'Dati e backup' },
 ]
 
@@ -52,7 +52,7 @@ export const financeRoutes: RouteRecordRaw[] = [
           { path: 'categorie', name: 'finance-manage-categories', component: () => import('./views/ManageView.vue'), props: { section: 'categories' }, meta: { title: 'Gestione · Categorie' } },
           { path: 'importazione', name: 'finance-import', component: () => import('./views/ImportView.vue'), meta: { title: 'Importazione' } },
           { path: 'riconciliazione', name: 'finance-reconciliation', component: () => import('./views/ReconciliationView.vue'), meta: { title: 'Riconciliazione estratti' } },
-          { path: 'cedolini', name: 'finance-payroll', component: () => import('./views/PayrollView.vue'), meta: { title: 'Buste paga' } },
+          { path: 'buste paga', name: 'finance-payroll', component: () => import('./views/PayrollView.vue'), meta: { title: 'Buste paga' } },
           { path: 'dati', name: 'finance-manage-data', component: () => import('./views/ManageView.vue'), props: { section: 'data' }, meta: { title: 'Gestione · Dati e backup' } },
         ],
       },
@@ -62,7 +62,7 @@ export const financeRoutes: RouteRecordRaw[] = [
       { path: 'movimenti', redirect: { name: 'finance-operations' } },
       { path: 'importazione', redirect: { name: 'finance-import' } },
       { path: 'riconciliazione', redirect: { name: 'finance-reconciliation' } },
-      { path: 'cedolini', redirect: { name: 'finance-payroll' } },
+      { path: 'buste paga', redirect: { name: 'finance-payroll' } },
       { path: 'conti', redirect: { name: 'finance-dashboard' } },
       { path: 'categorie', redirect: { name: 'finance-manage-categories' } },
     ],
