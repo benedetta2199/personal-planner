@@ -1,0 +1,87 @@
+/* Design tokens — unico punto in cui sono definiti colori, spaziature e tipografia.
+ * Stile: superfici bianche molto arrotondate su fondo grigio freddo,
+ * colore principale blu neutro (azzurro polvere per le superfici accese,
+ * blu ardesia scuro per testo e azioni principali). */
+:root {
+  color-scheme: light;
+  --font-sans: 'Outfit', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Consolas, monospace;
+
+  --brand: #c9daee;
+  --brand-strong: #b3cbe6;
+  --brand-soft: #eaf1f9;
+  --brand-tile: #dae6f4;
+  --on-brand: #16304d;
+  --ink: #22405f;
+  --ink-hover: #2c5178;
+  --orange: #f26b3a;
+
+  --page: #eceef1;
+  --surface: #ffffff;
+  --surface-2: #f4f6f9;
+  --surface-chart: #ffffff;
+  --border: #e3e7ec;
+  --border-strong: #cfd6df;
+
+  --text-primary: #121821;
+  --text-secondary: #485263;
+  --text-muted: #838c99;
+  --grid: #edf0f4;
+  --axis: #cfd6df;
+
+  --accent: #2f5d8c;
+  --accent-strong: var(--ink);
+  --accent-soft: var(--brand-soft);
+  --on-accent: var(--brand);
+
+  /* Saldi: verde = crescita (entrate > uscite), rosso = perdita (uscite > entrate). */
+  --positive: #2b8a36;
+  --positive-strong: #1f6b2b;
+  --negative: #c0322c;
+  --positive-soft: #e6f6e3;
+  --negative-soft: #fbe7e5;
+
+  --status-good: #57c25a;
+  --status-warning: #b87800;
+  --status-serious: #c25f43;
+  --status-critical: #e0483e;
+  --warning-soft: #fff6e3;
+  --critical-soft: var(--negative-soft);
+  --good-soft: var(--positive-soft);
+
+  /* Palette categoriale: mantiene riconoscibili le serie dei grafici. */
+  /* Validata (scripts/validate_palette.js): banda L, croma, CVD adiacenti. */
+  --series-1: #6aae2a;
+  --series-2: #1d7a52;
+  --series-3: #7b61ff;
+  --series-4: #f26b3a;
+  --series-5: #1f9fb0;
+  --series-6: #d4920f;
+  --series-7: #e0457b;
+  --series-8: #3d7bf2;
+  --series-other: #a3a8a0;
+
+  /* Ruoli finanziari → slot della palette (il colore segue l'entità). */
+  /* Validati come set (CVD ok): entrate verdi, uscite nei toni del rosso. */
+  --flow-income: #5fb84a;
+  --flow-necessary: #c0322c;
+  --flow-additional: #ef8a2f;
+  --flow-investment: #7b61ff;
+  --flow-transfer: var(--series-other);
+
+  --radius-sm: 12px;
+  --radius: 18px;
+  --radius-lg: 26px;
+  --shadow: 0 1px 2px rgba(18, 24, 33, 0.03);
+  --shadow-pop: 0 18px 48px rgba(18, 24, 33, 0.18);
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  --sidebar-w: 232px;
+  --header-h: 60px;
+}
