@@ -43,6 +43,7 @@ export const ICON_PATHS = {
   home: 'M3 11l9-8 9 8M5 9.5V21h14V9.5M10 21v-6h4v6',
   logout: 'M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4M10 17l5-5-5-5M15 12H4',
   checkCircle: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM8 12l3 3 5-6',
+  sidebar: 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM9 4v16',
 } as const
 
 export type IconName = keyof typeof ICON_PATHS

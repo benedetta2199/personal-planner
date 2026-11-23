@@ -418,7 +418,7 @@ const priceText = (p: Position) =>
                     </span>
                   </span>
                   <span class="pos__val">
-                    <strong class="num">{{ m(p.value) }}</strong>
+                    <strong class="num" :class="tone(p.unrealized)">{{ m(p.value) }}</strong>
                     <span class="num" :class="tone(perfOf(p).abs)">
                       <template v-if="perfOf(p).pct !== null">{{ perfOf(p).abs! >= 0 ? '▲' : '▼' }} {{ formatPercent(Math.abs(perfOf(p).pct!), 2) }}</template>
                       <template v-else>{{ perfMode === 'today' ? '—' : 'al costo' }}</template>
@@ -663,7 +663,7 @@ button.pos__row:hover { background: var(--surface-2); }
 }
 .pos__avatar--sm { width: 30px; height: 30px; font-size: 0.68rem; }
 .pos__id { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.pos__id strong { font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pos__id strong { color: var(--text-primary); font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pos__sub { font-size: 0.8rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pos__warn { font-style: normal; color: var(--accent); }
 .pos__val { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: 0.84rem; white-space: nowrap; }

@@ -551,3 +551,79 @@ export function computePortfolioSeries(
     return { date, value: Math.round(value), invested: Math.round(invested) }
   })
 }
+
+// ---------------------------------------------------------------------------
+// Investimenti di un mese
+// ---------------------------------------------------------------------------
+
+export interface MonthInvestmentRow {
+  key: string
+  category: string
+  name: string
+  bought: Cents
+  sold: Cents
+  /** Numero di acquisti e vendite nel mese. */
+  count: number
+  saveback: Cents
+}
+
+export interface MonthInvestmentSummary {
+  rows: MonthInvestmentRow[]
+  bought: Cents
+  sold: Cents
+  saveback: Cents
+  /** Valore del portafoglio a fine mese (o all'ultimo dato disponibile); null se non c'era ancora nulla. */
+  endValue: Cents | null
+  /** Guadagno o perdita di mercato nel mese, al netto di acquisti e vendite. */
+  gain: Cents | null
+  gainPct: number | null
+}
+
+/**
+ * Acquisti, vendite e rendimento di mercato del portafoglio in un mese.
+ * Il rendimento è la variazione del guadagno latente (valore − investito) tra la
+ * fine del mese precedente e la fine del mese, in % sul capitale esposto.
+ */
+export function summarizeInvestmentMonth(groups: PositionGroup[], series: PortfolioPoint[], month: string): MonthInvestmentSummary {
+  const rows: MonthInvestmentRow[] = []
+  for (const g of groups) {
+    const evs = g.events.filter((e) => e.date.startsWith(month))
+    if (!evs.length) continue
+    const row: MonthInvestmentRow = { key: g.key, category: g.category, name: g.name, bought: 0, sold: 0, count: evs.length, saveback: 0 }
+    for (const e of evs) {
+      if (e.kind === 'buy') row.bought += e.amount
+      else row.sold += e.amount
+      if (e.saveback) row.saveback += e.amount
+    }
+    rows.push(row)
+  }
+  rows.sort((a, b) => b.bought + b.sold - (a.bought + a.sold))
+  const sum = (f: (r: MonthInvestmentRow) => number) => rows.reduce((t, r) => t + f(r), 0)
+
+  let start: PortfolioPoint | null = null
+  let end: PortfolioPoint | null = null
+  for (const p of series) {
+    const m = p.date.slice(0, 7)
+    if (m < month) start = p
+    if (m <= month) end = p
+    else break
+  }
+  const endInMonth = end && end.date.startsWith(month) ? end : null
+  let gain: number | null = null
+  let gainPct: number | null = null
+  if (endInMonth) {
+    const s0 = start ?? { value: 0, invested: 0 }
+    gain = endInMonth.value - endInMonth.invested - (s0.value - s0.invested)
+    const base = s0.value + Math.max(0, endInMonth.invested - s0.invested)
+    gainPct = base > 0 ? gain / base : null
+  }
+  return {
+    rows,
+    bought: sum((r) => r.bought),
+    sold: sum((r) => r.sold),
+    saveback: sum((r) => r.saveback),
+    endValue: endInMonth?.value ?? (end && end.value > 0 ? end.value : null),
+    gain,
+    gainPct,
+  }
+}

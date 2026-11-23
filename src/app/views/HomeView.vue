@@ -61,7 +61,7 @@ const fin = computed(() => {
 })
 const financeLinks: QuickLink[] = [
   { label: 'Spese del mese', to: { name: 'finance-month' }, icon: 'calendar' },
-  { label: 'Dashboard', to: { name: 'finance-dashboard' }, icon: 'dashboard' },
+  { label: 'Panoramica finanze', to: { name: 'finance-dashboard' }, icon: 'dashboard' },
   { label: 'Movimenti', to: { name: 'finance-operations' }, icon: 'list' },
   { label: 'Investimenti', to: { name: 'finance-investments' }, icon: 'trend' },
 ]

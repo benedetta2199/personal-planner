@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { accruedInterest, computePortfolioSeries, computePositions, couponPeriod, groupInvestmentOps, summarizePortfolio, valueAt, type QuoteSeries } from '../investments'
+import { accruedInterest, computePortfolioSeries, computePositions, couponPeriod, groupInvestmentOps, summarizeInvestmentMonth, summarizePortfolio, valueAt, type QuoteSeries } from '../investments'
 import type { FinanceDataset, Operation } from '../types'
 
 let n = 0
@@ -207,5 +207,54 @@ describe('saveback', () => {
     // Il conto perde solo i 100 € pagati di tasca.
     const tr = computeAccountBalances(data).find((b) => b.account.name === 'TradeRepublic')!
     expect(tr.balance).toBe(100000 - 10000)
+  })
+})
+
+describe('summarizeInvestmentMonth', () => {
+  const groups = [
+    {
+      key: 'a',
+      category: 'ETF',
+      name: 'World',
+      events: [
+        { date: '2026-04-10', kind: 'buy' as const, amount: 10000 },
+        { date: '2026-05-04', kind: 'buy' as const, amount: 5000 },
+        { date: '2026-05-20', kind: 'buy' as const, amount: 1000, saveback: true },
+      ],
+    },
+    { key: 'b', category: 'Azioni', name: 'ACME', events: [{ date: '2026-05-12', kind: 'sell' as const, amount: 3000 }] },
+  ]
+  const series = [
+    { date: '2026-04-10', value: 10000, invested: 10000 },
+    { date: '2026-04-30', value: 10500, invested: 10000 },
+    { date: '2026-05-04', value: 15600, invested: 15000 },
+    { date: '2026-05-29', value: 17100, invested: 16000 },
+    { date: '2026-06-02', value: 17000, invested: 16000 },
+  ]
+
+  it('somma acquisti, vendite e saveback del mese per investimento', () => {
+    const r = summarizeInvestmentMonth(groups, series, '2026-05')
+    expect(r.bought).toBe(6000)
+    expect(r.sold).toBe(3000)
+    expect(r.saveback).toBe(1000)
+    expect(r.rows.map((x) => [x.name, x.count])).toEqual([
+      ['World', 2],
+      ['ACME', 1],
+    ])
+  })
+
+  it('calcola il rendimento di mercato al netto dei versamenti', () => {
+    const r = summarizeInvestmentMonth(groups, series, '2026-05')
+    // guadagno latente: 500 a fine aprile → 1100 a fine maggio
+    expect(r.gain).toBe(600)
+    expect(r.endValue).toBe(17100)
+    expect(r.gainPct).toBeCloseTo(600 / (10500 + 6000))
+  })
+
+  it('senza dati nel mese non inventa un rendimento', () => {
+    const r = summarizeInvestmentMonth(groups, series, '2026-03')
+    expect(r.rows).toEqual([])
+    expect(r.gain).toBeNull()
+    expect(r.endValue).toBeNull()
   })
 })

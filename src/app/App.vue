@@ -7,6 +7,7 @@ import UiButton from '@/core/ui/UiButton.vue'
 import { modules } from './modules'
 import { useCloudSync } from './sync/cloudSync'
 import { useAuthStore } from './auth/authStore'
+import { readJson, writeJson } from '@/core/utils/storage'
 
 /** Barriera d'errore globale: un errore in una vista non blocca l'intera app. */
 const fatal = ref<string | null>(null)
@@ -33,6 +34,11 @@ watch(
   { immediate: true },
 )
 
+/** Barra laterale ridotta alle sole icone (scelta ricordata su questo dispositivo). */
+const SIDE_KEY = 'gp.sidebar.collapsed'
+const collapsed = ref(readJson<boolean>(SIDE_KEY) === true)
+watch(collapsed, (v) => writeJson(SIDE_KEY, v))
+
 /** Pagine pubbliche (login): senza barra laterale. */
 const isPublic = computed(() => !!route.meta.public)
 
@@ -53,12 +59,24 @@ const showCloudAlert = computed(() => auth.isAuthenticated && (cloud.status.stat
 
 <template>
   <RouterView v-if="isPublic" />
-  <div v-else class="shell">
+  <div v-else class="shell" :class="{ 'shell--collapsed': collapsed }">
     <aside class="side" aria-label="Moduli">
-      <RouterLink to="/" class="brand">
-        <span class="brand__logo" aria-hidden="true"><UiIcon name="trend" :size="18" /></span>
-        <span class="brand__name">Growth Planner</span>
-      </RouterLink>
+      <div class="side__top">
+        <RouterLink to="/" class="brand" title="Growth Planner">
+          <span class="brand__logo" aria-hidden="true"><UiIcon name="trend" :size="18" /></span>
+          <span class="brand__name">Growth Planner</span>
+        </RouterLink>
+        <button
+          type="button"
+          class="side__toggle"
+          :aria-expanded="!collapsed"
+          :title="collapsed ? 'Espandi la barra laterale' : 'Riduci la barra laterale'"
+          :aria-label="collapsed ? 'Espandi la barra laterale' : 'Riduci la barra laterale'"
+          @click="collapsed = !collapsed"
+        >
+          <UiIcon name="sidebar" :size="18" />
+        </button>
+      </div>
       <nav class="nav">
         <RouterLink to="/" class="nav__item" exact-active-class="nav__item--on" title="Home">
           <UiIcon name="home" />
@@ -112,7 +130,16 @@ const showCloudAlert = computed(() => auth.isAuthenticated && (cloud.status.stat
   flex-direction: column;
   gap: var(--space-5);
 }
-.brand { display: flex; align-items: center; gap: 12px; padding: 4px 8px; color: var(--text-primary); font-weight: 700; letter-spacing: -0.02em; }
+.side__top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.side__toggle {
+  display: grid; place-items: center; width: 34px; height: 34px; flex: none;
+  border: 0; border-radius: 10px; background: transparent; color: var(--text-muted); cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.side__toggle:hover { background: var(--surface); color: var(--text-primary); }
+.side__toggle:focus-visible, .nav__item:focus-visible, .brand:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.shell { transition: grid-template-columns 0.2s ease; }
+.brand { display: flex; min-width: 0; align-items: center; gap: 12px; padding: 4px 8px; color: var(--text-primary); font-weight: 700; letter-spacing: -0.02em; }
 .brand:hover { text-decoration: none; }
 .brand__logo {
   display: grid;
@@ -135,8 +162,8 @@ const showCloudAlert = computed(() => auth.isAuthenticated && (cloud.status.stat
   font-weight: 550;
   transition: background 0.15s ease, color 0.15s ease;
 }
-.nav__item:hover { background: var(--surface); color: var(--text-primary); text-decoration: none; }
-.nav__item--on { background: var(--surface); color: var(--text-primary); font-weight: 600; }
+.nav__item:hover { background: var(--brand-soft); color: var(--on-brand); text-decoration: none; }
+.nav__item--on, .nav__item--on:hover { background: var(--ink); color: var(--brand); font-weight: 600; }
 .nav__soon { margin-left: auto; font-size: 0.7rem; color: var(--text-muted); border: 1px solid var(--border); border-radius: 999px; padding: 0 6px; }
 .cloud {
   margin-top: auto;
@@ -176,10 +203,17 @@ const showCloudAlert = computed(() => auth.isAuthenticated && (cloud.status.stat
 .cloud-alert { margin-bottom: var(--space-5); }
 .main { padding: 36px 40px 48px; max-width: 1520px; width: 100%; min-width: 0; }
 
-/* Tablet: sidebar compatta a sole icone */
+/* Barra ridotta a sole icone: su richiesta su desktop, sempre su tablet */
+@media (min-width: 641px) {
+  .shell--collapsed { grid-template-columns: 68px minmax(0, 1fr); }
+  .shell--collapsed :is(.brand__name, .nav__label, .nav__soon, .cloud__text, .logout__text) { display: none; }
+  .shell--collapsed :is(.cloud, .logout) { justify-content: center; }
+  .shell--collapsed :is(.nav__item, .brand) { justify-content: center; padding: 10px; }
+  .shell--collapsed .side__top { flex-direction: column; gap: 10px; }
+}
 @media (max-width: 1024px) {
   .shell { grid-template-columns: 68px minmax(0, 1fr); }
-  .brand__name, .nav__label, .nav__soon, .cloud__text, .logout__text { display: none; }
+  .brand__name, .nav__label, .nav__soon, .cloud__text, .logout__text, .side__toggle { display: none; }
   .cloud, .logout { justify-content: center; }
   .nav__item, .brand { justify-content: center; padding: 10px; }
   .main { padding: 28px 28px 40px; }
@@ -201,9 +235,10 @@ const showCloudAlert = computed(() => auth.isAuthenticated && (cloud.status.stat
     background: var(--surface);
     border-top: 1px solid var(--border);
   }
-  .brand, .cloud { display: none; }
+  .side__top, .cloud { display: none; }
   .nav { flex-direction: row; justify-content: space-around; width: 100%; gap: 2px; }
-  .nav__item { flex-direction: column; gap: 3px; padding: 6px 4px; font-size: 0.66rem; flex: 1; min-width: 0; border-radius: 10px; }
+  .nav__item { flex-direction: column; gap: 3px; padding: 6px 4px; font-size: 0.66rem; flex: 1; min-width: 0; border-radius: 12px; }
+  .nav__item--on, .nav__item--on:hover { background: var(--brand-soft); color: var(--on-brand); }
   .logout { margin-top: 0; flex-direction: column; gap: 3px; padding: 6px 4px; font-size: 0.66rem; border-radius: 10px; flex: none; }
   .logout__text { display: block; }
   .nav__label { display: block; }

@@ -121,7 +121,7 @@ const accountCount = computed(() => cards.value.length + others.value.length)
       </div>
     </section>
 
-    <SubNav :tabs="dashboardTabs" label="Sezioni della dashboard" />
+    <SubNav :tabs="dashboardTabs" label="Sezioni della panoramica" />
     <AccountDialog :open="accountDialog" @close="accountDialog = false" />
 
     <RouterView />

@@ -142,7 +142,7 @@ function save() {
           <em>{{ CARD_THEME_META[t].label }}</em>
         </label>
       </fieldset>
-      <label class="af__check"><input v-model="form.showCard" type="checkbox" /> Mostra come carta nella dashboard</label>
+      <label class="af__check"><input v-model="form.showCard" type="checkbox" /> Mostra come carta nella Panoramica</label>
       <label class="af__check"><input v-model="form.isDefault" type="checkbox" /> Conto predefinito per le nuove voci</label>
       <p class="muted small">Rinominando il conto, il vecchio nome viene conservato tra gli «altri nomi», così i movimenti del foglio restano collegati.</p>
       <UiAlert v-if="error" tone="critical">{{ error }}</UiAlert>

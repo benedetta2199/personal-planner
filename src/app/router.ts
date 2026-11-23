@@ -27,7 +27,10 @@ router.beforeEach((to) => {
   return true
 })
 
+/** Titolo della scheda dal generale al particolare: «Growth Planner · Finanze · Investimenti». */
 router.afterEach((to) => {
   const title = to.meta.title as string | undefined
-  document.title = title ? `${title} · Growth Planner` : 'Growth Planner'
+  const mod = modules.find((m) => to.path === m.path || to.path.startsWith(`${m.path}/`))
+  const parts = ['Growth Planner', mod?.label, title].filter((p, i, all): p is string => !!p && all.indexOf(p) === i)
+  document.title = parts.join(' · ')
 })

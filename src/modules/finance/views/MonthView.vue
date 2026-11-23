@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import UiButton from '@/core/ui/UiButton.vue'
 import UiIcon from '@/core/ui/UiIcon.vue'
 import UiAlert from '@/core/ui/UiAlert.vue'
@@ -12,10 +11,10 @@ import CategoryDonut from '../components/CategoryDonut.vue'
 import TransactionsPanel from '../components/TransactionsPanel.vue'
 import EntryDialog from '../components/EntryDialog.vue'
 import InstrumentDialog from '../components/InstrumentDialog.vue'
+import MonthInvestments from '../components/MonthInvestments.vue'
 import { FLOW_META } from '../presentation'
 
 const store = useFinanceStore()
-const router = useRouter()
 const today = todayIso()
 const month = ref(today.slice(0, 7))
 const cur = computed(() => store.baseCurrency)
@@ -107,7 +106,10 @@ function onSaved(op: Operation | null) {
   <div class="mv">
     <div class="mv__bar">
       <MonthSwitcher v-model="month" />
-      <UiButton variant="brand" icon="plus" @click="add">Aggiungi voce</UiButton>
+      <button type="button" class="mv__add" @click="add">
+        <UiIcon name="plus" :size="20" />
+        Aggiungi voce
+      </button>
     </div>
 
     <UiAlert v-if="s.missingRates.length" tone="warning">
@@ -124,7 +126,7 @@ function onSaved(op: Operation | null) {
               <span class="hero__arrow" aria-hidden="true">{{ s.netCashflow > 0 ? '▲' : s.netCashflow < 0 ? '▼' : '' }}</span>{{ m(s.netCashflow, true) }}
             </p>
           </div>
-          <RouterLink :to="{ name: 'finance-dash-month' }" class="hero__go" aria-label="Analisi mensile nella dashboard">
+          <RouterLink :to="{ name: 'finance-dash-month' }" class="hero__go" aria-label="Analisi mensile nella panoramica">
             <UiIcon name="arrowUpRight" :size="26" />
           </RouterLink>
         </div>
@@ -145,10 +147,6 @@ function onSaved(op: Operation | null) {
             <span class="hero__k"><span class="dot" style="background: var(--flow-investment)" />Investito</span>
             <strong class="num">{{ m(s.invested) }}</strong>
           </div>
-        </div>
-        <div class="row hero__actions">
-          <UiButton variant="primary" icon="plus" @click="add">Nuova voce</UiButton>
-          <UiButton icon="list" @click="router.push({ name: 'finance-operations' })">Tutti i movimenti</UiButton>
         </div>
       </section>
 
@@ -201,6 +199,8 @@ function onSaved(op: Operation | null) {
             </li>
           </ul>
         </section>
+
+        <MonthInvestments :month="month" :month-name="monthName" />
       </div>
 
       <section class="panel mv__tx" aria-labelledby="mv-tx">
@@ -218,12 +218,36 @@ function onSaved(op: Operation | null) {
     <EntryDialog :open="dialogOpen" :operation="selected" :default-date="defaultDate" @close="dialogOpen = false" @saved="onSaved" @needs-instrument="askInstrument" />
     <InstrumentDialog :open="insOpen" :category="insCat" :subcategory="insSub" @close="insOpen = false" />
     <div v-if="toast" class="toast" role="status">{{ toast }}</div>
+
+    <!-- Mobile: azione principale sempre a portata di pollice -->
+    <button type="button" class="mv__fab" aria-label="Aggiungi voce" @click="add">
+      <UiIcon name="plus" :size="24" />
+      <span>Aggiungi</span>
+    </button>
   </div>
 </template>
 
 <style scoped>
 .mv { display: flex; flex-direction: column; gap: 18px; }
 .mv__bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.mv__add {
+  display: inline-flex; align-items: center; gap: 8px; height: 48px; padding: 0 24px 0 18px;
+  border: 0; border-radius: 999px; background: var(--ink); color: var(--brand);
+  font: inherit; font-size: 1rem; font-weight: 600; cursor: pointer;
+  box-shadow: 0 6px 18px rgba(34, 64, 95, 0.28);
+  transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+.mv__add:hover { background: var(--ink-hover); transform: translateY(-1px); box-shadow: 0 10px 24px rgba(34, 64, 95, 0.32); }
+.mv__add:focus-visible, .mv__fab:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.mv__fab {
+  display: none; position: fixed; z-index: 55;
+  right: 16px; bottom: calc(84px + env(safe-area-inset-bottom));
+  align-items: center; gap: 6px; height: 56px; padding: 0 22px 0 18px;
+  border: 0; border-radius: 999px; background: var(--ink); color: var(--brand);
+  font: inherit; font-size: 1rem; font-weight: 600; cursor: pointer;
+  box-shadow: 0 10px 28px rgba(18, 24, 33, 0.3);
+}
+.mv__fab:active { transform: scale(0.97); }
 .mv__top { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 18px; }
 .mv__main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 18px; align-items: start; }
 .mv__col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
@@ -244,7 +268,6 @@ function onSaved(op: Operation | null) {
 .hero__stat .pill { align-self: flex-start; font-size: 0.7rem; }
 .hero__k { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--text-secondary); }
 .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.hero__actions { margin-top: 4px; }
 
 .savings {
   position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 8px;
@@ -285,6 +308,12 @@ function onSaved(op: Operation | null) {
   .hero { padding: 20px 18px; }
   .hero__stats { grid-template-columns: 1fr 1fr; }
   .hero__go { width: 52px; height: 52px; }
-  .toast { bottom: calc(92px + env(safe-area-inset-bottom)); }
+  .toast { bottom: calc(150px + env(safe-area-inset-bottom)); }
+}
+@media (max-width: 640px) {
+  .mv__add { display: none; }
+  .mv__fab { display: inline-flex; }
+  /* spazio perché il pulsante flottante non copra l'ultima riga */
+  .mv { padding-bottom: 72px; }
 }
 </style>

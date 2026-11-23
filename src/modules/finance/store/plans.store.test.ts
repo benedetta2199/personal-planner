@@ -38,3 +38,27 @@ describe('PAC: generazione delle voci', () => {
     expect(ledger.runPlans('2026-12-31', new Set(), name, eur)).toBe(0)
   })
 })
+
+describe('PAC: allineamento con il foglio', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+
+  it('unisce i PAC quando sia il foglio sia il browser hanno modifiche', () => {
+    const ledger = useLedgerStore()
+    const local = ledger.addPlan({ key: 'Investimenti␟VWCE', amount: 5000, frequency: 'monthly', account: 'Conto', startDate: '2026-11-01' })
+    ledger.state.updatedAt = '2026-11-20T10:00:00.000Z'
+    const remote = { ...ledger.cloudConfig(), plans: [{ ...local, id: 'altro', key: 'Investimenti␟MSCI' }] }
+    ledger.mergeCloudConfig(remote, '2026-11-21T10:00:00.000Z')
+    expect(ledger.state.plans!.map((p) => p.id).sort()).toEqual([local.id, 'altro'].sort())
+  })
+
+  it('non fa ricomparire un PAC eliminato in locale', () => {
+    const ledger = useLedgerStore()
+    const plan = ledger.addPlan({ key: 'Investimenti␟VWCE', amount: 5000, frequency: 'monthly', account: 'Conto', startDate: '2026-11-01' })
+    const remote = { ...ledger.cloudConfig(), plans: [plan] }
+    ledger.removePlan(plan.id)
+    ledger.mergeCloudConfig(remote, '2099-01-01T00:00:00.000Z')
+    expect(ledger.state.plans).toEqual([])
+    ledger.applyCloudConfig(remote, '2099-01-02T00:00:00.000Z')
+    expect(ledger.state.plans).toEqual([])
+  })
+})

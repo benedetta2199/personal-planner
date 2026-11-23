@@ -146,11 +146,19 @@ export const useFinanceStore = defineStore('finance', () => {
     cloud.value = { state: 'saving' }
     try {
       // 1) Configurazione: conti, categorie, icone, saldi iniziali, investimenti.
+      // Si confronta ciascun lato con l'ultimo allineamento (non solo gli orari): così un dispositivo
+      // rimasto indietro non sovrascrive il foglio, e le modifiche fatte altrove non si perdono.
       const remote = await getRemoteConfig(token)
       const local = ledger.state
-      if (remote.config && remote.updatedAt && (!local.updatedAt || remote.updatedAt > local.updatedAt)) {
-        ledger.applyCloudConfig(remote.config as CloudConfig, remote.updatedAt)
-      } else if (!remote.updatedAt || local.updatedAt !== local.configSyncedAt || remote.updatedAt !== local.updatedAt) {
+      const remoteChanged = !!remote.config && !!remote.updatedAt && remote.updatedAt !== local.configSyncedAt
+      const localChanged = !!local.updatedAt && local.updatedAt !== local.configSyncedAt
+      if (remoteChanged && !localChanged) {
+        ledger.applyCloudConfig(remote.config as CloudConfig, remote.updatedAt!)
+      } else if (remoteChanged && localChanged) {
+        const at = ledger.mergeCloudConfig(remote.config as CloudConfig, remote.updatedAt!)
+        await putRemoteConfig(ledger.cloudConfig(), at, token)
+        ledger.markConfigSynced(at)
+      } else if (localChanged || !remote.updatedAt) {
         const at = local.updatedAt ?? new Date().toISOString()
         if (!local.updatedAt) local.updatedAt = at
         await putRemoteConfig(ledger.cloudConfig(), at, token)
@@ -184,24 +192,27 @@ export const useFinanceStore = defineStore('finance', () => {
       return false
     } finally {
       syncing.value = false
+      // Modifiche fatte durante la sincronizzazione: si salvano subito dopo.
+      // Solo dopo un salvataggio riuscito, per non riprovare all'infinito in caso di errore.
+      if (cloud.value.state === 'saved' && hasUnsaved()) scheduleAutosave()
     }
   }
 
   // Dopo ogni modifica (voce, conto, categoria…) si salva da soli sul foglio.
   let autoTimer: ReturnType<typeof setTimeout> | undefined
-  watch(
-    () => [ledger.pendingCount(), ledger.state.updatedAt],
-    () => {
-      if (source.value !== 'sheets') return
-      clearTimeout(autoTimer)
-      autoTimer = setTimeout(async () => {
-        if (syncing.value) return
-        // Niente da salvare (es. la coda si è appena svuotata): nessuna richiesta.
-        if (!ledger.pendingCount() && ledger.state.updatedAt === ledger.state.configSyncedAt) return
-        await sync()
-      }, 2000)
-    },
-  )
+  const hasUnsaved = () => !!ledger.pendingCount() || ledger.state.updatedAt !== ledger.state.configSyncedAt
+  function scheduleAutosave() {
+    if (source.value !== 'sheets') return
+    clearTimeout(autoTimer)
+    autoTimer = setTimeout(async () => {
+      // Sincronizzazione in corso: si riprova al termine (vedi `sync`).
+      if (syncing.value) return
+      // Niente da salvare (es. la coda si è appena svuotata): nessuna richiesta.
+      if (!hasUnsaved()) return
+      await sync()
+    }, 2000)
+  }
+  watch(() => [ledger.pendingCount(), ledger.state.updatedAt], scheduleAutosave)
 
   /**
    * Crea le voci dei piani di accumulo scadute fino a oggi. Gli addebiti già presenti

@@ -30,6 +30,21 @@ import {
 
 const KEY = 'gp.finance.ledger.v1'
 
+/** Confronto profondo indipendente dall'ordine delle chiavi; i campi undefined sono ignorati. */
+function stable(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(stable)
+  if (v && typeof v === 'object') {
+    return Object.fromEntries(
+      Object.keys(v)
+        .filter((k) => (v as Record<string, unknown>)[k] !== undefined)
+        .sort()
+        .map((k) => [k, stable((v as Record<string, unknown>)[k])]),
+    )
+  }
+  return v
+}
+const sameJson = (a: unknown, b: unknown) => JSON.stringify(stable(a)) === JSON.stringify(stable(b))
+
 /** Dati di una voce dal form (importi in centesimi). */
 export type EntryDraft =
   | { kind: 'expense'; expenseType: ExpenseType; date: string; account: string; category: string; subcategory: string; description: string; amount: number; currency: string }
@@ -170,7 +185,7 @@ export const useLedgerStore = defineStore('finance-ledger', () => {
 
   function cloudConfig(): CloudConfig {
     const s = state.value
-    return { config: s.config, investments: s.investments ?? {}, plans: s.plans ?? [], preset: s.preset, seeded: s.seeded }
+    return { config: s.config, investments: s.investments ?? {}, plans: s.plans ?? [], removedPlans: s.removedPlans ?? [], preset: s.preset, seeded: s.seeded }
   }
 
   // ---- Piani di accumulo (PAC) --------------------------------------------------
@@ -215,6 +230,8 @@ export const useLedgerStore = defineStore('finance-ledger', () => {
 
   function removePlan(id: string) {
     state.value.plans = (state.value.plans ?? []).filter((x) => x.id !== id)
+    const removed = (state.value.removedPlans ??= [])
+    if (!removed.includes(id)) removed.push(id)
   }
 
   /**
@@ -242,17 +259,61 @@ export const useLedgerStore = defineStore('finance-ledger', () => {
     return created
   }
 
-  function applyCloudConfig(remote: CloudConfig, updatedAt: string) {
+  /** Esegue modifiche arrivate dal foglio senza segnarle come modifiche locali. */
+  function withoutLocalChange(fn: () => void) {
     applyingRemote = true
-    state.value.config = remote.config
-    state.value.investments = remote.investments ?? {}
-    state.value.plans = remote.plans ?? []
-    state.value.preset = remote.preset
-    state.value.seeded = remote.seeded
-    state.value.updatedAt = updatedAt
-    state.value.configSyncedAt = updatedAt
+    fn()
     // Il watcher della configurazione è asincrono: si riattiva dopo il suo giro.
     queueMicrotask(() => setTimeout(() => (applyingRemote = false)))
+  }
+
+  function applyCloudConfig(remote: CloudConfig, updatedAt: string) {
+    withoutLocalChange(() => {
+      const removed = new Set([...(remote.removedPlans ?? []), ...(state.value.removedPlans ?? [])])
+      state.value.config = remote.config
+      state.value.investments = remote.investments ?? {}
+      state.value.plans = (remote.plans ?? []).filter((p) => !removed.has(p.id))
+      state.value.removedPlans = [...removed]
+      state.value.preset = remote.preset
+      state.value.seeded = remote.seeded
+      state.value.updatedAt = updatedAt
+      state.value.configSyncedAt = updatedAt
+    })
+  }
+
+  /**
+   * Modifiche sia locali sia sul foglio dall'ultimo allineamento: conti, categorie e investimenti
+   * seguono la versione più recente, mentre i PAC vengono uniti (nessun piano va perso; quelli
+   * eliminati su un dispositivo restano eliminati). Restituisce la nuova data da salvare sul foglio.
+   */
+  function mergeCloudConfig(remote: CloudConfig, remoteUpdatedAt: string): string {
+    const local = state.value
+    const localWins = !!local.updatedAt && local.updatedAt > remoteUpdatedAt
+    const removed = new Set([...(remote.removedPlans ?? []), ...(local.removedPlans ?? [])])
+    const merged = new Map<string, InvestmentPlan>()
+    for (const p of remote.plans ?? []) merged.set(p.id, p)
+    for (const p of local.plans ?? []) {
+      const other = merged.get(p.id)
+      if (!other) merged.set(p.id, p)
+      else {
+        const winner = localWins ? p : other
+        // Gli addebiti hanno ID stabili: si riparte dal giorno più avanzato già coperto.
+        merged.set(p.id, { ...winner, generatedUntil: p.generatedUntil > other.generatedUntil ? p.generatedUntil : other.generatedUntil })
+      }
+    }
+    const at = new Date().toISOString()
+    withoutLocalChange(() => {
+      if (!localWins) {
+        local.config = remote.config
+        local.investments = remote.investments ?? {}
+        local.preset = remote.preset
+        local.seeded = remote.seeded || local.seeded
+      }
+      local.plans = [...merged.values()].filter((p) => !removed.has(p.id))
+      local.removedPlans = [...removed]
+      local.updatedAt = at
+    })
+    return at
   }
 
   function markConfigSynced(updatedAt: string) {
@@ -414,7 +475,12 @@ export const useLedgerStore = defineStore('finance-ledger', () => {
   /** Salva (sostituendo) i dati dello strumento collegato alla posizione. */
   function setInvestment(key: string, cfg: InvestmentConfig) {
     const inv = (state.value.investments ??= {})
-    inv[key] = { ...cfg, ticker: cfg.ticker.trim().toUpperCase(), isin: cfg.isin?.trim().toUpperCase() || undefined, updatedAt: cfg.updatedAt ?? new Date().toISOString() }
+    const next = { ...cfg, ticker: cfg.ticker.trim().toUpperCase(), isin: cfg.isin?.trim().toUpperCase() || undefined, updatedAt: cfg.updatedAt ?? new Date().toISOString() }
+    // Dati identici (es. riletti dal foglio a ogni apertura): nessuna modifica, così la configurazione
+    // locale non risulta «più recente» e non sovrascrive quella salvata da altri dispositivi.
+    const prev = inv[key]
+    if (prev && sameJson(cfg.updatedAt ? prev : { ...prev, updatedAt: undefined }, cfg.updatedAt ? next : { ...next, updatedAt: undefined })) return
+    inv[key] = next
   }
 
   function removeInvestment(key: string) {
@@ -467,18 +533,20 @@ export const useLedgerStore = defineStore('finance-ledger', () => {
     parsed.investments ??= {}
     // Il backup ripristinato va salvato anche sul foglio.
     parsed.outbox = { ...(parsed.outbox ?? {}), ...Object.fromEntries(parsed.entries.map((e) => [e.id, 'upsert' as const])) }
+    // Il ripristino deve prevalere sul foglio: si conserva l'ultimo allineamento noto.
+    parsed.configSyncedAt = state.value.configSyncedAt
     state.value = parsed
     state.value.updatedAt = new Date().toISOString()
   }
 
   function reset() {
-    state.value = { ...defaultLedger(), outbox: {}, updatedAt: new Date().toISOString() }
+    state.value = { ...defaultLedger(), outbox: {}, removedPlans: (state.value.plans ?? []).map((p) => p.id), configSyncedAt: state.value.configSyncedAt, updatedAt: new Date().toISOString() }
   }
 
   return {
     state, saveFailed,
     addEntry, updateEntry, removeEntry, isManual,
-    pendingCount, pendingChanges, markSent, pruneSaved, cloudConfig, applyCloudConfig, markConfigSynced,
+    pendingCount, pendingChanges, markSent, pruneSaved, cloudConfig, applyCloudConfig, mergeCloudConfig, markConfigSynced,
     addPlan, updatePlan, setPlanActive, removePlan, runPlans,
     addAccount, updateAccount, removeAccount, moveAccount, setDefaultAccount, defaultAccountName, nextColor,
     setInvestment, removeInvestment, recolorCategories,

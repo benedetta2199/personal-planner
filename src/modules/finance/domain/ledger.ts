@@ -130,6 +130,8 @@ export interface LedgerState {
   preset?: number
   /** Piani di accumulo (PAC). */
   plans?: InvestmentPlan[]
+  /** ID dei PAC eliminati: servono a non farli ricomparire unendo la configurazione di un altro dispositivo. */
+  removedPlans?: string[]
   /** Modifiche alle voci non ancora salvate sul foglio Google (id voce → operazione). */
   outbox?: Record<string, 'upsert' | 'delete'>
   /** Ultima modifica della configurazione (conti, categorie, investimenti). */
@@ -143,6 +145,7 @@ export interface CloudConfig {
   config: LedgerConfig
   investments: Record<string, InvestmentConfig>
   plans?: InvestmentPlan[]
+  removedPlans?: string[]
   preset?: number
   seeded: boolean
 }
