@@ -8,6 +8,7 @@ import { formatDateTime } from '@/core/utils/format'
 import { useFinanceStore } from '../store/financeStore'
 import { useLedgerStore } from '../store/ledgerStore'
 import { financeTabs } from '../routes'
+import { useAuthStore } from '@/app/auth/authStore'
 
 const store = useFinanceStore()
 const ledger = useLedgerStore()
@@ -16,6 +17,13 @@ const route = useRoute()
 /** Scheda attiva: la sezione (anche annidata) corrente; «Mese» solo sulla propria pagina. */
 const isTabOn = (name: string) => (name === 'finance-month' ? route.name === name : route.matched.some((r) => r.name === name))
 onMounted(() => store.init())
+
+/** Token rifiutato dal server: si esce e si torna al login. */
+const auth = useAuthStore()
+function relogin() {
+  auth.logout()
+  void router.replace({ name: 'login', query: { redirect: route.fullPath } })
+}
 
 const syncLabel = computed(() => {
   if (store.syncing) return 'Sincronizzazione…'
@@ -78,14 +86,14 @@ const cloudChip = computed(() => {
       {{ store.blockingError.message }}
       <span v-if="store.dataset"> Stai vedendo gli ultimi dati salvati.</span>
       <template v-if="store.blockingError.code === 'unauthorized'" #actions>
-        <UiButton size="sm" icon="lock" @click="router.push({ name: 'finance-import' })">Inserisci token</UiButton>
+        <UiButton size="sm" icon="lock" @click="relogin">Accedi di nuovo</UiButton>
       </template>
     </UiAlert>
 
     <UiAlert v-if="store.cloud.state === 'error' || store.cloud.state === 'needs-token'" tone="warning" title="Le modifiche non sono ancora sul foglio Google">
       {{ store.cloud.message }} Restano salvate in questo browser e verranno inviate alla prossima sincronizzazione.
       <template #actions>
-        <UiButton v-if="store.cloud.state === 'needs-token'" size="sm" icon="lock" @click="router.push({ name: 'finance-import' })">Inserisci token</UiButton>
+        <UiButton v-if="store.cloud.state === 'needs-token'" size="sm" icon="lock" @click="relogin">Accedi di nuovo</UiButton>
         <UiButton v-else size="sm" icon="refresh" :loading="store.syncing" @click="store.sync()">Riprova</UiButton>
       </template>
     </UiAlert>

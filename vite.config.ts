@@ -13,6 +13,19 @@ function devApi(env: Record<string, string>): Plugin {
     name: 'dev-api',
     apply: 'serve',
     configureServer(server) {
+      server.middlewares.use('/api/auth/check', async (req, res) => {
+        res.setHeader('Content-Type', 'application/json; charset=utf-8')
+        res.setHeader('Cache-Control', 'no-store')
+        try {
+          const mod = await server.ssrLoadModule('/server/auth.ts')
+          const result = await mod.handleAuthCheck({ method: req.method ?? 'GET', authorization: req.headers.authorization, env })
+          res.statusCode = result.status
+          res.end(JSON.stringify(result.body))
+        } catch (e) {
+          res.statusCode = 500
+          res.end(JSON.stringify({ ok: false, code: 'internal', message: (e as Error).message }))
+        }
+      })
       server.middlewares.use('/api/finance/sync', async (req, res) => {
         try {
           const mod = await server.ssrLoadModule('/server/financeSync.ts')

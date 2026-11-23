@@ -5,7 +5,7 @@
  * Ogni modulo ha un orario di ultima modifica: dopo ogni cambiamento il modulo viene inviato
  * (dopo qualche secondo di pausa); all'avvio e quando la scheda torna visibile si rilegge il foglio
  * e si applicano le versioni più recenti salvate da altri dispositivi. In caso di modifiche
- * contemporanee vince la più recente, modulo per modulo. Usa lo stesso token del modulo Finanze.
+ * contemporanee vince la più recente, modulo per modulo. Usa il token del login (store auth).
  */
 import { defineStore, storeToRefs } from 'pinia'
 import { ref, watch, type Ref } from 'vue'
@@ -15,10 +15,10 @@ import { useAgendaStore } from '@/modules/agenda/store/agendaStore'
 import { useGoalsStore } from '@/modules/goals/store'
 import { useHabitsStore } from '@/modules/habits/store'
 import { useJournalStore } from '@/modules/journal/store'
+import { useAuthStore } from '../auth/authStore'
 import { agendaTables, goalsTables, habitsTables, journalTables, type Tables } from './plannerTables'
 
 const META_KEY = 'gp.planner.sync.v1'
-const TOKEN_KEY = 'gp.accessToken'
 const DEBOUNCE_MS = 2500
 const TIMEOUT_MS = 90_000
 /** Errori di configurazione: inutile riprovare a ogni modifica finché non si ricarica la pagina. */
@@ -113,9 +113,9 @@ export const useCloudSync = defineStore('cloudSync', () => {
       again = true
       return
     }
-    const token = (readJson<string>(TOKEN_KEY) ?? '').trim()
+    const token = useAuthStore().token
     if (!token) {
-      status.value = { state: 'needs-token', message: 'Inserisci il token di accesso (in Finanze › Importazione) per salvare i dati sul foglio Google.' }
+      status.value = { state: 'needs-token', message: 'Accedi con il token per salvare i dati sul foglio Google.' }
       return
     }
     running = true

@@ -30,6 +30,7 @@ import { buildDemoSheets } from '../data/demo'
 import { readJson, removeKey, writeJson } from '@/core/utils/storage'
 import { todayIso } from '@/core/utils/format'
 import { useLedgerStore } from './ledgerStore'
+import { useAuthStore } from '@/app/auth/authStore'
 
 export type DataSource = 'sheets' | 'demo'
 
@@ -45,7 +46,6 @@ interface CachedState {
 
 const CACHE_KEY = 'gp.finance.cache.v1'
 const FILTERS_KEY = 'gp.finance.filters.v1'
-const TOKEN_KEY = 'gp.accessToken'
 
 /** Errori per cui ha senso proporre i dati demo (backend non configurato/raggiungibile). */
 export const BACKEND_MISSING = new Set(['not_configured', 'unavailable', 'network'])
@@ -72,7 +72,9 @@ export const useFinanceStore = defineStore('finance', () => {
   const lastDiff = ref<SyncDiff | null>(null)
   const syncing = ref(false)
   const error = ref<{ code: string; message: string } | null>(null)
-  const accessToken = ref<string>(readJson<string>(TOKEN_KEY) ?? '')
+  /** Token del login, condiviso con tutta l'app. */
+  const auth = useAuthStore()
+  const accessToken = computed(() => auth.token)
   const initialized = ref(false)
 
   const filters = ref<FinanceFilters>({ ...defaultFilters(), ...(readJson<Partial<FinanceFilters>>(FILTERS_KEY) ?? {}) })
@@ -138,7 +140,7 @@ export const useFinanceStore = defineStore('finance', () => {
   async function flushToSheet(): Promise<void> {
     const token = accessToken.value
     if (!token) {
-      cloud.value = { state: 'needs-token', message: 'Inserisci il token di accesso per salvare i dati sul foglio Google.' }
+      cloud.value = { state: 'needs-token', message: 'Accedi con il token per salvare i dati sul foglio Google.' }
       return
     }
     cloud.value = { state: 'saving' }
@@ -220,12 +222,6 @@ export const useFinanceStore = defineStore('finance', () => {
   function loadDemo() {
     const result = importFinanceSheets(buildDemoSheets(), { baseCurrency: 'EUR' })
     apply(result, 'demo', new Date().toISOString(), 'Dati dimostrativi')
-  }
-
-  function setAccessToken(token: string) {
-    accessToken.value = token.trim()
-    if (accessToken.value) writeJson(TOKEN_KEY, accessToken.value)
-    else removeKey(TOKEN_KEY)
   }
 
   function clearData() {
@@ -319,7 +315,7 @@ export const useFinanceStore = defineStore('finance', () => {
     // stato
     dataset, rawDataset, issues, stats, source, spreadsheetTitle, lastSyncAt, lastDiff, syncing, error, accessToken, filters, today, cloud,
     // azioni
-    init, sync, loadDemo, setAccessToken, clearData, resetFilters, runPlans,
+    init, sync, loadDemo, clearData, resetFilters, runPlans,
     // derivati
     range, operations, filteredOperations, flowSummary, balanceAsOf, balances, netWorth, months, monthlyFlows, balanceSeries,
     accountNames, categories, subcategoryKeys, currencies, errorCount, warningCount, baseCurrency, blockingError,

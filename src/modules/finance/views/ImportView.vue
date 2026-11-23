@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 import UiCard from '@/core/ui/UiCard.vue'
 import UiButton from '@/core/ui/UiButton.vue'
 import UiAlert from '@/core/ui/UiAlert.vue'
@@ -11,14 +11,7 @@ import ImportReport from '../components/ImportReport.vue'
 import { ALL_SHEETS, SHEET_SCHEMAS, type SheetName } from '../domain'
 
 const store = useFinanceStore()
-const tokenDraft = ref(store.accessToken)
-const showToken = computed(() => store.error?.code === 'unauthorized' || !!store.accessToken)
 const sheetTab = ref<SheetName>('Uscite')
-
-async function saveToken() {
-  store.setAccessToken(tokenDraft.value)
-  await store.sync()
-}
 
 const SHEET_NOTES: Record<SheetName, string> = {
   Entrate: 'Ogni riga aumenta la disponibilità del conto indicato.',
@@ -68,15 +61,8 @@ const SHEET_NOTES: Record<SheetName, string> = {
       </UiAlert>
       <UiAlert v-else-if="store.error" tone="critical" title="Errore di sincronizzazione" class="src__alert">{{ store.error.message }}</UiAlert>
 
-      <form v-if="showToken" class="token" @submit.prevent="saveToken">
-        <label class="token__field">
-          <span class="small secondary">Token di accesso all'API (APP_ACCESS_TOKEN)</span>
-          <input v-model="tokenDraft" class="input" type="password" autocomplete="current-password" placeholder="Incolla il token" />
-        </label>
-        <UiButton type="submit" icon="lock">Salva e sincronizza</UiButton>
-      </form>
-      <p v-else class="muted small token__hint">
-        Se hai impostato <code>APP_ACCESS_TOKEN</code> sul server, ti verrà chiesto alla prima sincronizzazione.
+      <p class="muted small token__hint">
+        Il token di accesso (<code>APP_ACCESS_TOKEN</code>) si inserisce al login ed è ricordato su questo dispositivo. Per cambiarlo usa «Esci».
       </p>
     </UiCard>
 
@@ -138,8 +124,6 @@ const SHEET_NOTES: Record<SheetName, string> = {
 .src dd { margin: 0; }
 .src__actions { margin-top: var(--space-4); }
 .src__alert { margin-top: var(--space-4); }
-.token { display: flex; gap: var(--space-3); align-items: flex-end; margin-top: var(--space-4); flex-wrap: wrap; }
-.token__field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 220px; }
 .token__hint { margin-top: var(--space-3); }
 code { font-family: var(--font-mono); font-size: 0.85em; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
 .schema__note { margin: var(--space-3) 0; }

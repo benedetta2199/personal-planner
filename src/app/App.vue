@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onErrorCaptured, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onErrorCaptured, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import UiIcon from '@/core/ui/UiIcon.vue'
 import UiAlert from '@/core/ui/UiAlert.vue'
 import UiButton from '@/core/ui/UiButton.vue'
 import { modules } from './modules'
 import { useCloudSync } from './sync/cloudSync'
+import { useAuthStore } from './auth/authStore'
 
 /** Barriera d'errore globale: un errore in una vista non blocca l'intera app. */
 const fatal = ref<string | null>(null)
@@ -18,8 +19,27 @@ const reload = () => window.location.reload()
 
 /** Salvataggio sul foglio Google di Agenda, Obiettivi, Abitudini e Diario. */
 const cloud = useCloudSync()
-onMounted(() => cloud.start())
+const auth = useAuthStore()
 const route = useRoute()
+const router = useRouter()
+/** Il salvataggio parte solo dopo il login; a ogni nuovo accesso si riprova subito. */
+watch(
+  () => auth.isAuthenticated,
+  (on) => {
+    if (!on) return
+    cloud.start()
+    cloud.retry()
+  },
+  { immediate: true },
+)
+
+/** Pagine pubbliche (login): senza barra laterale. */
+const isPublic = computed(() => !!route.meta.public)
+
+async function logout() {
+  auth.logout()
+  await router.replace({ name: 'login' })
+}
 const cloudChip = computed(() => {
   const s = cloud.status
   if (s.state === 'saving') return { tone: 'busy', text: 'Salvataggio sul foglio…' }
@@ -28,17 +48,22 @@ const cloudChip = computed(() => {
   return { tone: 'error', text: s.state === 'off' ? 'Foglio non collegato' : 'Non salvato sul foglio' }
 })
 /** L'avviso compare solo nelle pagine del planner: il Finanze ha già il suo. */
-const showCloudAlert = computed(() => (cloud.status.state === 'error' || cloud.status.state === 'needs-token') && !route.path.startsWith('/finanze'))
+const showCloudAlert = computed(() => auth.isAuthenticated && (cloud.status.state === 'error' || cloud.status.state === 'needs-token') && !route.path.startsWith('/finanze'))
 </script>
 
 <template>
-  <div class="shell">
+  <RouterView v-if="isPublic" />
+  <div v-else class="shell">
     <aside class="side" aria-label="Moduli">
       <RouterLink to="/" class="brand">
         <span class="brand__logo" aria-hidden="true"><UiIcon name="trend" :size="18" /></span>
         <span class="brand__name">Growth Planner</span>
       </RouterLink>
       <nav class="nav">
+        <RouterLink to="/" class="nav__item" exact-active-class="nav__item--on" title="Home">
+          <UiIcon name="home" />
+          <span class="nav__label">Home</span>
+        </RouterLink>
         <RouterLink v-for="m in modules" :key="m.id" :to="m.path" class="nav__item" active-class="nav__item--on" :title="m.label">
           <UiIcon :name="m.icon" />
           <span class="nav__label">{{ m.label }}</span>
@@ -48,6 +73,10 @@ const showCloudAlert = computed(() => (cloud.status.state === 'error' || cloud.s
       <button v-if="cloudChip" type="button" class="cloud" :class="`cloud--${cloudChip.tone}`" :title="cloud.status.message ?? 'Agenda, Obiettivi, Abitudini e Diario'" @click="cloud.retry()">
         <span class="cloud__dot" aria-hidden="true" />
         <span class="cloud__text" role="status">{{ cloudChip.text }}</span>
+      </button>
+      <button type="button" class="logout" :class="{ 'logout--alone': !cloudChip }" title="Esci (elimina il token da questo dispositivo)" @click="logout">
+        <UiIcon name="logout" :size="16" />
+        <span class="logout__text">Esci</span>
       </button>
     </aside>
 
@@ -60,7 +89,7 @@ const showCloudAlert = computed(() => (cloud.status.state === 'error' || cloud.s
         <UiAlert v-if="showCloudAlert" tone="warning" title="Le modifiche non sono ancora sul foglio Google" class="cloud-alert">
           {{ cloud.status.message }} Restano salvate in questo browser e verranno inviate appena possibile.
           <template #actions>
-            <UiButton v-if="cloud.status.state === 'needs-token'" size="sm" icon="lock" @click="$router.push({ name: 'finance-import' })">Inserisci token</UiButton>
+            <UiButton v-if="cloud.status.state === 'needs-token'" size="sm" icon="lock" @click="logout">Accedi di nuovo</UiButton>
             <UiButton v-else size="sm" icon="refresh" @click="cloud.retry()">Riprova</UiButton>
           </template>
         </UiAlert>
@@ -125,6 +154,21 @@ const showCloudAlert = computed(() => (cloud.status.state === 'error' || cloud.s
   cursor: pointer;
 }
 .cloud:hover { background: var(--surface); }
+.logout {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.logout--alone { margin-top: auto; }
+.logout:hover { background: var(--surface); color: var(--text-primary); }
 .cloud__dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: currentColor; }
 .cloud--ok .cloud__dot { color: var(--positive); }
 .cloud--busy .cloud__dot { color: var(--accent); }
@@ -135,8 +179,8 @@ const showCloudAlert = computed(() => (cloud.status.state === 'error' || cloud.s
 /* Tablet: sidebar compatta a sole icone */
 @media (max-width: 1024px) {
   .shell { grid-template-columns: 68px minmax(0, 1fr); }
-  .brand__name, .nav__label, .nav__soon, .cloud__text { display: none; }
-  .cloud { justify-content: center; }
+  .brand__name, .nav__label, .nav__soon, .cloud__text, .logout__text { display: none; }
+  .cloud, .logout { justify-content: center; }
   .nav__item, .brand { justify-content: center; padding: 10px; }
   .main { padding: 28px 28px 40px; }
 }
@@ -158,8 +202,10 @@ const showCloudAlert = computed(() => (cloud.status.state === 'error' || cloud.s
     border-top: 1px solid var(--border);
   }
   .brand, .cloud { display: none; }
-  .nav { flex-direction: row; justify-content: space-around; width: 100%; gap: 4px; }
-  .nav__item { flex-direction: column; gap: 3px; padding: 6px 8px; font-size: 0.7rem; flex: 1; border-radius: 10px; }
+  .nav { flex-direction: row; justify-content: space-around; width: 100%; gap: 2px; }
+  .nav__item { flex-direction: column; gap: 3px; padding: 6px 4px; font-size: 0.66rem; flex: 1; min-width: 0; border-radius: 10px; }
+  .logout { margin-top: 0; flex-direction: column; gap: 3px; padding: 6px 4px; font-size: 0.66rem; border-radius: 10px; flex: none; }
+  .logout__text { display: block; }
   .nav__label { display: block; }
   .main { padding: 22px 16px calc(88px + env(safe-area-inset-bottom)); }
 }

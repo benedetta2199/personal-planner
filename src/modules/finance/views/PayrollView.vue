@@ -21,7 +21,6 @@ type PayrollValueField = 'basePay' | 'grossPay' | 'totalDeductions' | 'netPay' |
 
 const store = useFinanceStore()
 const drafts = ref<PayrollDraft[]>([])
-const tokenDraft = ref(store.accessToken)
 const readError = ref('')
 const readWarnings = ref<string[]>([])
 const reading = ref(false)
@@ -116,17 +115,13 @@ function setType(draft: PayrollDraft, event: Event) {
   updateRecordKey(draft.record)
 }
 
-function connectToken() {
-  store.setAccessToken(tokenDraft.value)
-}
-
 async function save(draft: PayrollDraft) {
   if (!isReady(draft.record)) {
     draft.error = 'Inserisci anno, mese e netto in busta prima di salvare.'
     return
   }
   if (!store.accessToken) {
-    draft.error = 'Inserisci prima il token di accesso.'
+    draft.error = 'Accedi di nuovo con il token di accesso.'
     return
   }
   draft.saving = true
@@ -155,13 +150,6 @@ async function save(draft: PayrollDraft) {
       <ul v-if="readWarnings.length" class="warnings">
         <li v-for="warning in readWarnings" :key="warning">{{ warning }}</li>
       </ul>
-      <form v-if="!store.accessToken" class="token" @submit.prevent="connectToken">
-        <label>
-          <span class="small secondary">Token di accesso richiesto per salvare su Google Sheets</span>
-          <input v-model="tokenDraft" class="input" type="password" autocomplete="current-password" placeholder="Incolla il token" />
-        </label>
-        <UiButton type="submit" icon="lock">Collega</UiButton>
-      </form>
     </UiCard>
 
     <UiCard v-for="(draft, index) in drafts" :key="draft.record.sourceHash" :title="`Cedolino ${index + 1}`" subtitle="Verifica e correggi i valori prima di inviarli.">
@@ -230,8 +218,6 @@ async function save(draft: PayrollDraft) {
 .upload { display: flex; flex-direction: column; gap: 6px; padding: 18px; border: 1px dashed var(--border-strong); border-radius: var(--radius); background: var(--surface-2); cursor: pointer; }
 .upload:hover { border-color: var(--accent); }
 .upload__title { font-weight: 650; }
-.token { display: flex; align-items: flex-end; gap: var(--space-3); margin-top: var(--space-4); flex-wrap: wrap; }
-.token label { display: flex; flex: 1; flex-direction: column; gap: 5px; min-width: 220px; }
 .period { display: flex; gap: var(--space-3); flex-wrap: wrap; }
 .period label, .payroll-grid label { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .period .input { min-width: 160px; }
