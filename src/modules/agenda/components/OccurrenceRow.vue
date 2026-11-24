@@ -1,10 +1,13 @@
 <script setup lang="ts">
-/** Una scadenza con spunta, categoria, cadenza e stato. Cliccando sul titolo si modifica l'impegno. */
+/**
+ * Un task (con spunta) o un evento (senza spunta, anche su più giorni), con categoria, cadenza e stato.
+ * Cliccando sul titolo si modifica.
+ */
 import { computed } from 'vue'
 import UiIcon from '@/core/ui/UiIcon.vue'
-import { fmtDayMonth, fmtShortDay, relativeDays } from '@/core/utils/dates'
+import { daysBetween, fmtDayMonth, fmtShortDay, relativeDays } from '@/core/utils/dates'
 import { categoryOf } from '../domain/catalog'
-import { recurrenceLabel, type Occurrence } from '../domain/recurrence'
+import { isEvent, recurrenceLabel, type Occurrence } from '../domain/recurrence'
 import { useAgendaStore } from '../store/agendaStore'
 
 const props = withDefaults(defineProps<{ occurrence: Occurrence; showDate?: boolean }>(), { showDate: true })
@@ -13,10 +16,22 @@ const store = useAgendaStore()
 const c = computed(() => props.occurrence.commitment)
 const cat = computed(() => categoryOf(c.value.category))
 const done = computed(() => props.occurrence.status === 'done')
+const event = computed(() => isEvent(c.value))
+const multiDay = computed(() => props.occurrence.end > props.occurrence.date)
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
 const badge = computed(() => {
   const o = props.occurrence
   const rel = relativeDays(o.date, store.today)
+  if (event.value) {
+    if (o.status === 'missed') return { tone: 'neutral', text: 'Passato' }
+    if (o.status === 'today') {
+      if (!multiDay.value) return { tone: 'accent', text: 'Oggi' }
+      const n = daysBetween(o.date, store.today) + 1
+      return { tone: 'accent', text: `In corso · giorno ${n} di ${daysBetween(o.date, o.end) + 1}` }
+    }
+    return { tone: o.status === 'soon' ? 'warning' : 'neutral', text: cap(rel) }
+  }
   switch (o.status) {
     case 'done':
       return { tone: 'good', text: o.completion && o.completion.doneOn !== o.date ? `Fatto il ${fmtDayMonth(o.completion.doneOn)}` : 'Fatto' }
@@ -35,8 +50,10 @@ const badge = computed(() => {
 </script>
 
 <template>
-  <li class="occ" :class="[`occ--${occurrence.status}`, { 'occ--projected': occurrence.projected }]">
+  <li class="occ" :class="[`occ--${occurrence.status}`, { 'occ--projected': occurrence.projected, 'occ--event': event }]">
+    <span v-if="event" class="occ__evt" aria-hidden="true" title="Evento"><UiIcon name="calendar" :size="13" /></span>
     <button
+      v-else
       type="button"
       class="occ__check"
       :class="{ on: done }"
@@ -50,9 +67,12 @@ const badge = computed(() => {
     </button>
     <span class="occ__emoji" :style="{ background: `color-mix(in srgb, var(${cat.color}) 16%, transparent)` }" aria-hidden="true">{{ cat.emoji }}</span>
     <div class="occ__body">
-      <button type="button" class="occ__title" @click="store.openEditor({ commitment: c })">{{ c.title }}</button>
+      <button type="button" class="occ__title" :title="c.title" @click="store.openEditor({ commitment: c })">{{ c.title }}</button>
       <span class="occ__meta muted small">
-        <template v-if="showDate">{{ fmtShortDay(occurrence.date) }} · </template>{{ recurrenceLabel(c.repeat, c.start) }}<template v-if="c.mode === 'afterDone' && c.repeat.unit !== 'none'"> dal completamento</template>
+        <template v-if="multiDay">{{ fmtShortDay(occurrence.date) }} → {{ fmtShortDay(occurrence.end) }} · </template>
+        <template v-else-if="showDate">{{ fmtShortDay(occurrence.date) }} · </template>
+        <template v-if="event">{{ c.repeat.unit === 'none' ? 'Evento' : recurrenceLabel(c.repeat, c.start) }}</template>
+        <template v-else>{{ recurrenceLabel(c.repeat, c.start) }}<template v-if="c.mode === 'afterDone' && c.repeat.unit !== 'none'"> dal completamento</template></template>
       </span>
     </div>
     <span class="occ__badge" :class="`occ__badge--${badge.tone}`">{{ badge.text }}</span>
@@ -69,6 +89,8 @@ const badge = computed(() => {
 .occ__check:hover:not(:disabled) { border-color: var(--ink); }
 .occ__check.on { background: var(--positive); border-color: var(--positive); }
 .occ__check:disabled { cursor: default; border-style: dashed; }
+.occ__evt { width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; flex-shrink: 0; background: var(--surface-2); color: var(--text-secondary); }
+.occ--event.occ--today .occ__evt { background: var(--brand); color: var(--on-brand); }
 .occ__emoji { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; font-size: 1.05rem; flex-shrink: 0; }
 .occ__body { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .occ__title { all: unset; cursor: pointer; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -23,6 +23,7 @@ import PlansPanel from '../components/PlansPanel.vue'
 import EntryDialog from '../components/EntryDialog.vue'
 import ValueAdjustDialog from '../components/ValueAdjustDialog.vue'
 import { categoryColor, plainName, subcategoryColor } from '../presentation'
+import { usePrimaryAction } from '@/core/ui/primaryAction'
 
 const finance = useFinanceStore()
 const ledger = useLedgerStore()
@@ -257,6 +258,9 @@ function newPlan(p: Position) {
 }
 
 // ---- Acquisto cliccato: si apre la voce per vederla o modificarla ------------------
+/** «+» su mobile: registra un acquisto se ci sono strumenti, altrimenti crea il primo investimento. */
+usePrimaryAction(() => (buyable.value.length ? { label: 'Registra un acquisto', run: () => buy() } : { label: 'Nuovo investimento', run: newInvestment }))
+
 const entryOpen = ref(false)
 const entryOp = ref<Operation | null>(null)
 function openLot(l: Lot) {

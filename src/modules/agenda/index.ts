@@ -8,6 +8,7 @@ const routes: RouteRecordRaw[] = [
     children: [
       { path: '', name: 'agenda-today', component: () => import('./views/TodayView.vue'), meta: { title: 'Agenda · Oggi' } },
       { path: 'task', name: 'agenda-tasks', component: () => import('./views/TasksView.vue'), meta: { title: 'Agenda · Task' } },
+      { path: 'eventi', name: 'agenda-events', component: () => import('./views/EventsView.vue'), meta: { title: 'Agenda · Eventi' } },
       { path: 'calendario', name: 'agenda-calendar', component: () => import('./views/CalendarView.vue'), meta: { title: 'Agenda · Calendario' } },
       { path: 'scadenze', name: 'agenda-commitments', component: () => import('./views/CommitmentsView.vue'), meta: { title: 'Agenda · Scadenze' } },
       { path: 'obiettivi', name: 'goals', component: () => import('@/modules/goals/GoalsView.vue'), props: { embedded: true }, meta: { title: 'Obiettivi' } },
@@ -23,7 +24,7 @@ const routes: RouteRecordRaw[] = [
 export const agendaModule: AppModule = {
   id: 'agenda',
   label: 'Planner',
-  description: 'Agenda, task, scadenze, obiettivi e abitudini',
+  description: 'Agenda, task, eventi, scadenze, obiettivi e abitudini',
   icon: 'calendar',
   path: '/agenda',
   status: 'active',

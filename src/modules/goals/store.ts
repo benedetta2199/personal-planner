@@ -9,7 +9,7 @@ interface GoalsData {
   goals: Goal[]
 }
 
-export type GoalDraft = Pick<Goal, 'title' | 'area' | 'why' | 'targetDate' | 'manualProgress'> & { milestones: Omit<Milestone, 'id'>[] | Milestone[] }
+export type GoalDraft = Pick<Goal, 'title' | 'area' | 'why' | 'description' | 'link' | 'targetDate' | 'manualProgress'> & { milestones: Omit<Milestone, 'id'>[] | Milestone[] }
 
 export const useGoalsStore = defineStore('goals', () => {
   const { state, saveFailed } = persistedState<GoalsData>('gp.goals.v1', () => ({ version: 1, goals: [] }))

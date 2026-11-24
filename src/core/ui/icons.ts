@@ -21,6 +21,8 @@ export const ICON_PATHS = {
   arrowRight: 'M5 12h14M13 6l6 6-6 6',
   trend: 'M3 17l6-6 4 4 8-8M15 7h6v6',
   plus: 'M12 5v14M5 12h14',
+  minus: 'M5 12h14',
+  link: 'M10 14a4.5 4.5 0 0 0 6.4 0l3.2-3.2a4.5 4.5 0 0 0-6.4-6.4l-1.1 1.1M14 10a4.5 4.5 0 0 0-6.4 0l-3.2 3.2a4.5 4.5 0 0 0 6.4 6.4l1.1-1.1',
   edit: 'M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4',
   trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
   calendar: 'M4 6h16v15H4zM4 10h16M8 3v4M16 3v4',

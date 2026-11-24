@@ -9,8 +9,9 @@ import UiEmpty from '@/core/ui/UiEmpty.vue'
 import UiIcon from '@/core/ui/UiIcon.vue'
 import UiAlert from '@/core/ui/UiAlert.vue'
 import { addDaysTo, dayRange, fmtDayMonth, fmtLongDay, startOfWeek, todayDay, WEEKDAY_LETTERS, type IsoDay } from '@/core/utils/dates'
+import { useOpenFromQuery, usePrimaryAction } from '@/core/ui/primaryAction'
 import HabitDialog from './HabitDialog.vue'
-import { bestStreak, completionRate, isScheduled, streak, type Habit } from './domain'
+import { bestStreak, completionRate, frequencyLabel, isDueOn, isPeriodic, isScheduled, periodDone, periodLabel, streak, streakUnit, type Habit } from './domain'
 import { useHabitsStore } from './store'
 
 const store = useHabitsStore()
@@ -20,15 +21,16 @@ const days = computed(() => dayRange(weekStart.value, addDaysTo(weekStart.value,
 const isCurrentWeek = computed(() => weekStart.value === startOfWeek(today))
 const weekLabel = computed(() => `${fmtDayMonth(days.value[0])} – ${fmtDayMonth(days.value[6])}`)
 
-const todayHabits = computed(() => store.habits.filter((h) => isScheduled(h, today)))
+const todayHabits = computed(() => store.habits.filter((h) => isDueOn(h, store.doneSet(h.id), today)))
 const todayDone = computed(() => todayHabits.value.filter((h) => store.isDone(h.id, today)).length)
 const rows = computed(() =>
   store.habits.map((h) => {
     const set = store.doneSet(h.id)
-    return { h, streak: streak(h, set, today), best: bestStreak(h, set, today), rate: completionRate(h, set, today) }
+    return { h, streak: streak(h, set, today), best: bestStreak(h, set, today), rate: completionRate(h, set, today), progress: periodLabel(h, set, today) }
   }),
 )
-const topStreak = computed(() => Math.max(0, ...rows.value.map((r) => r.streak)))
+/** Serie in giorni: solo le abitudini settimanali (le altre si contano in mesi o quindicine). */
+const topStreak = computed(() => Math.max(0, ...rows.value.filter((r) => !isPeriodic(r.h)).map((r) => r.streak)))
 const avgRate = computed(() => {
   const rates = rows.value.map((r) => r.rate).filter((r): r is number => r !== null)
   return rates.length ? rates.reduce((a, b) => a + b, 0) / rates.length : null
@@ -40,18 +42,26 @@ const expanded = ref<string | null>(null)
 
 function cellState(h: Habit, d: IsoDay) {
   if (d > today) return 'future'
+  if (isPeriodic(h)) {
+    // Giorni liberi: «da fare» finché il periodo non è completo, poi non servono più.
+    if (store.isDone(h.id, d)) return 'done'
+    if (periodDone(h, store.doneSet(h.id), d)) return 'off'
+    return d === today ? 'pending' : 'open'
+  }
   if (!isScheduled(h, d)) return store.isDone(h.id, d) ? 'extra' : 'off'
   return store.isDone(h.id, d) ? 'done' : d === today ? 'pending' : 'miss'
 }
 
 const dialog = ref<{ open: boolean; habit: Habit | null }>({ open: false, habit: null })
 const edit = (habit: Habit | null) => (dialog.value = { open: true, habit })
+usePrimaryAction({ label: 'Nuova abitudine', run: () => edit(null) })
+useOpenFromQuery(() => edit(null))
 const pct = (v: number | null) => (v === null ? '—' : `${Math.round(v * 100)}%`)
 </script>
 
 <template>
   <div class="hv">
-    <UiPageHeader :title="props.embedded ? undefined : 'Abitudini'" subtitle="Piccole azioni ripetute ogni giorno">
+    <UiPageHeader :title="props.embedded ? undefined : 'Abitudini'" subtitle="Piccole azioni ripetute: ogni giorno, in alcuni giorni o qualche volta al mese">
       <UiButton variant="primary" icon="plus" @click="edit(null)">Nuova abitudine</UiButton>
     </UiPageHeader>
     <UiAlert v-if="store.saveFailed" tone="critical" title="Salvataggio non riuscito">Il browser non permette di salvare i dati: le ultime modifiche andranno perse alla chiusura.</UiAlert>
@@ -91,7 +101,10 @@ const pct = (v: number | null) => (v === null ? '—' : `${Math.round(v * 100)}%
                 <UiIcon name="chevron" :size="14" :style="{ transform: expanded === r.h.id ? 'none' : 'rotate(-90deg)' }" />
               </button>
               <span aria-hidden="true">{{ r.h.emoji }}</span>
-              <button type="button" class="tbl__title" @click="edit(r.h)">{{ r.h.name }}</button>
+              <span class="tbl__text">
+                <button type="button" class="tbl__title" :title="r.h.name" @click="edit(r.h)">{{ r.h.name }}</button>
+                <small class="muted" :title="frequencyLabel(r.h)">{{ r.progress ?? frequencyLabel(r.h) }}</small>
+              </span>
             </span>
             <span v-for="d in days" :key="d" role="cell" class="tbl__cellwrap">
               <button
@@ -106,18 +119,21 @@ const pct = (v: number | null) => (v === null ? '—' : `${Math.round(v * 100)}%
                 <UiIcon v-if="store.isDone(r.h.id, d)" name="check" :size="14" />
               </button>
             </span>
-            <span role="cell" class="tbl__stat num" :title="`Record: ${r.best} giorni`"><UiIcon v-if="r.streak >= 3" name="flame" :size="14" class="flame" />{{ r.streak }}</span>
+            <span role="cell" class="tbl__stat num" :title="`Serie: ${r.streak} ${streakUnit(r.h, r.streak)} · record ${r.best} ${streakUnit(r.h, r.best)}`"><UiIcon v-if="r.streak >= 3" name="flame" :size="14" class="flame" />{{ r.streak }}</span>
             <span role="cell" class="tbl__stat num">{{ pct(r.rate) }}</span>
           </div>
           <div v-if="expanded === r.h.id" class="heat" :style="{ '--c': `var(${r.h.color})` }">
             <div class="heat__grid" role="img" :aria-label="`Ultime 12 settimane di ${r.h.name}`">
               <span v-for="d in heatDays" :key="d" class="heat__cell" :class="`cell--${cellState(r.h, d)}`" :title="fmtLongDay(d)" />
             </div>
-            <span class="muted small">Ultime 12 settimane · record {{ r.best }} giorni di fila</span>
+            <span class="muted small">Ultime 12 settimane · {{ frequencyLabel(r.h) }} · record {{ r.best }} {{ streakUnit(r.h, r.best) }} di fila</span>
           </div>
         </template>
       </div>
-      <p class="muted small hv__legend">Le caselle tratteggiate sono i giorni in cui l'abitudine non è prevista. Puoi segnare anche i giorni passati.</p>
+      <p class="muted small hv__legend">
+        Le caselle tratteggiate sono i giorni in cui l'abitudine non è prevista (o, per quelle mensili e quindicinali, in cui l'obiettivo del periodo è già raggiunto).
+        Puoi segnare anche i giorni passati. Per le abitudini mensili e quindicinali la serie si conta in mesi o quindicine.
+      </p>
     </section>
 
     <section v-if="store.archived.length" class="panel">
@@ -152,6 +168,8 @@ const pct = (v: number | null) => (v === null ? '—' : `${Math.round(v * 100)}%
 .flame { color: var(--orange); }
 .tbl__name { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .tbl__expand { border: 0; background: none; padding: 2px; cursor: pointer; color: var(--text-muted); display: grid; }
+.tbl__text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.tbl__text small { font-size: 0.72rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tbl__title { all: unset; cursor: pointer; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tbl__title:hover { text-decoration: underline; }
 .tbl__title:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
@@ -162,6 +180,7 @@ const pct = (v: number | null) => (v === null ? '—' : `${Math.round(v * 100)}%
 .cell--extra { opacity: 0.6; }
 .cell--pending { border-color: var(--c); border-width: 2px; }
 .cell--miss { background: var(--surface-2); }
+.cell--open { background: var(--surface); }
 .cell--off { border-style: dashed; background: transparent; }
 .cell--future { opacity: 0.35; cursor: default; }
 .heat { padding: 10px 0 14px 30px; display: flex; flex-direction: column; gap: 6px; border-bottom: 1px solid var(--border); }

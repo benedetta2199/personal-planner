@@ -3,10 +3,10 @@
  * Sono solo una vista dei dati: l'app rilegge dalla copia completa nella scheda nascosta.
  */
 import type { IsoDay } from '@/core/utils/dates'
-import { nextDue, recurrenceLabel, type Commitment, type Completion } from '@/modules/agenda/domain/recurrence'
+import { extraDays, isEvent, nextDue, recurrenceLabel, type Commitment, type Completion } from '@/modules/agenda/domain/recurrence'
 import { categoryOf } from '@/modules/agenda/domain/catalog'
 import { areaOf, goalProgress, nextMilestone, type Goal } from '@/modules/goals/domain'
-import { bestStreak, completionRate, streak, type Habit } from '@/modules/habits/domain'
+import { bestStreak, completionRate, frequencyLabel, isPeriodic, streak, streakUnit, type Habit } from '@/modules/habits/domain'
 import { MOODS, type JournalEntry } from '@/modules/journal/store'
 
 export type Cell = string | number | { $date: string }
@@ -14,7 +14,6 @@ export type Tables = Record<string, Cell[][]>
 
 const day = (d: IsoDay | null | undefined): Cell => (d ? { $date: d } : '')
 const yesNo = (v: boolean | undefined) => (v ? 'Sì' : 'No')
-const WEEKDAYS = ['lun', 'mar', 'mer', 'gio', 'ven', 'sab', 'dom']
 const GOAL_STATUS: Record<Goal['status'], string> = { active: 'Attivo', paused: 'In pausa', done: 'Raggiunto' }
 
 export function agendaTables(data: { commitments: Commitment[]; completions: Completion[] }, today: IsoDay): Tables {
@@ -28,13 +27,15 @@ export function agendaTables(data: { commitments: Commitment[]; completions: Com
 
   return {
     Scadenze: [
-      ['Impegno', 'Categoria', 'Prossima scadenza', 'Cadenza', 'Calcolo', 'Preavviso (giorni)', 'Ultima volta', 'Fine ripetizione', 'In pausa', 'Note', 'ID'],
+      ['Impegno', 'Tipo', 'Categoria', 'Prossima scadenza', 'Durata (giorni)', 'Cadenza', 'Calcolo', 'Preavviso (giorni)', 'Ultima volta', 'Fine ripetizione', 'In pausa', 'Note', 'ID'],
       ...commitments.map(({ c, next }) => [
         c.title,
+        isEvent(c) ? 'Evento' : 'Task',
         categoryOf(c.category).label,
         day(next),
+        extraDays(c) + 1,
         recurrenceLabel(c.repeat, c.start),
-        c.repeat.unit === 'none' ? '' : c.mode === 'afterDone' ? 'Dal completamento' : 'Date fisse',
+        c.repeat.unit === 'none' || isEvent(c) ? '' : c.mode === 'afterDone' ? 'Dal completamento' : 'Date fisse',
         c.remindDays,
         day(lastDone.get(c.id)),
         day(c.until),
@@ -56,7 +57,7 @@ export function goalsTables(data: { goals: Goal[] }): Tables {
   const goals = [...data.goals].sort((a, b) => (a.targetDate ?? '9999').localeCompare(b.targetDate ?? '9999'))
   return {
     Obiettivi: [
-      ['Obiettivo', 'Area', 'Stato', 'Scadenza', 'Avanzamento %', 'Tappe fatte', 'Prossima tappa', 'Data prossima tappa', 'Perché', 'ID'],
+      ['Obiettivo', 'Area', 'Stato', 'Scadenza', 'Avanzamento %', 'Tappe fatte', 'Prossima tappa', 'Data prossima tappa', 'Perché', 'Descrizione', 'Link', 'ID'],
       ...goals.map((g) => {
         const next = nextMilestone(g)
         return [
@@ -69,6 +70,8 @@ export function goalsTables(data: { goals: Goal[] }): Tables {
           next?.title ?? '',
           day(next?.due),
           g.why ?? '',
+          g.description ?? '',
+          g.link ?? '',
           g.id,
         ]
       }),
@@ -85,16 +88,18 @@ export function habitsTables(data: { habits: Habit[]; log: Record<string, IsoDay
   const log = Object.entries(data.log).flatMap(([id, days]) => days.map((d) => [d, names.get(id) ?? '(abitudine eliminata)'] as const))
   return {
     Abitudini: [
-      ['Abitudine', 'Giorni', 'Dal', 'Serie attuale', 'Serie migliore', '% ultimi 30 giorni', 'Archiviata', 'ID'],
+      ['Abitudine', 'Cadenza', 'Dal', 'Serie attuale', 'Serie migliore', '% ultimi 30 giorni', 'Archiviata', 'ID'],
       ...data.habits.map((h) => {
         const done = new Set(data.log[h.id] ?? [])
         const rate = completionRate(h, done, today)
+        const s = streak(h, done, today)
+        const b = bestStreak(h, done, today)
         return [
           `${h.emoji} ${h.name}`,
-          h.weekdays.length === 7 ? 'Ogni giorno' : [...h.weekdays].sort().map((d) => WEEKDAYS[d - 1]).join(', '),
+          frequencyLabel(h),
           day(h.createdAt),
-          streak(h, done, today),
-          bestStreak(h, done, today),
+          isPeriodic(h) ? `${s} ${streakUnit(h, s)}` : s,
+          isPeriodic(h) ? `${b} ${streakUnit(h, b)}` : b,
           rate === null ? '' : Math.round(rate * 100),
           yesNo(h.archived),
           h.id,

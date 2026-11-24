@@ -9,6 +9,7 @@ import { useFinanceStore } from '../store/financeStore'
 import { useLedgerStore } from '../store/ledgerStore'
 import { financeTabs } from '../routes'
 import { useAuthStore } from '@/app/auth/authStore'
+import { usePrimaryAction } from '@/core/ui/primaryAction'
 
 const store = useFinanceStore()
 const ledger = useLedgerStore()
@@ -43,6 +44,9 @@ const syncShort = computed(() => {
   return `${store.source === 'demo' ? 'Demo' : 'Aggiornato'} ${when}`
 })
 const manageOn = computed(() => route.matched.some((r) => r.name === 'finance-manage'))
+
+/** «+» su mobile nelle sezioni senza un'azione propria: nuova voce nella pagina del mese. */
+usePrimaryAction({ label: 'Aggiungi voce', run: () => void router.push({ name: 'finance-month', query: { nuovo: '1' } }) })
 
 /** Stato del salvataggio sul foglio delle modifiche fatte nell'app. */
 const cloudChip = computed(() => {

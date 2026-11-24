@@ -7,9 +7,10 @@ import UiEmpty from '@/core/ui/UiEmpty.vue'
 import UiIcon from '@/core/ui/UiIcon.vue'
 import { addDaysTo, fmtShortDay, relativeDays } from '@/core/utils/dates'
 import OccurrenceRow from '../components/OccurrenceRow.vue'
+import { isEvent } from '../domain/recurrence'
 import { useAgendaStore } from '../store/agendaStore'
 import { useHabitsStore } from '@/modules/habits/store'
-import { isScheduled } from '@/modules/habits/domain'
+import { isDueOn, periodLabel } from '@/modules/habits/domain'
 import { useGoalsStore } from '@/modules/goals/store'
 import { areaOf } from '@/modules/goals/domain'
 
@@ -18,13 +19,16 @@ const habits = useHabitsStore()
 const goals = useGoalsStore()
 const router = useRouter()
 
-const todayList = computed(() => store.occurrences(store.today, store.today))
+const todayAll = computed(() => store.occurrences(store.today, store.today))
+/** Task di oggi (da spuntare) ed eventi in corso oggi (anche iniziati nei giorni scorsi). */
+const todayList = computed(() => todayAll.value.filter((o) => !isEvent(o.commitment)))
+const todayEvents = computed(() => todayAll.value.filter((o) => isEvent(o.commitment)))
 const todayOpen = computed(() => todayList.value.filter((o) => o.status !== 'done').length)
-const week = computed(() => store.occurrences(addDaysTo(store.today, 1), addDaysTo(store.today, 7)).filter((o) => !o.projected))
+const week = computed(() => store.occurrences(addDaysTo(store.today, 1), addDaysTo(store.today, 7)).filter((o) => !o.projected && o.date > store.today))
 /** In arrivo oltre la settimana, ma già dentro il periodo di preavviso. */
 const later = computed(() => store.upcoming.filter((o) => o.date > addDaysTo(store.today, 7)))
 
-const todayHabits = computed(() => habits.habits.filter((h) => isScheduled(h, store.today)))
+const todayHabits = computed(() => habits.habits.filter((h) => isDueOn(h, habits.doneSet(h.id), store.today)))
 const habitsDone = computed(() => todayHabits.value.filter((h) => habits.isDone(h.id, store.today)).length)
 const goalItems = computed(() => goals.datedItems(store.today, addDaysTo(store.today, 30)).filter((i) => !i.done))
 const empty = computed(() => !store.state.commitments.length)
@@ -38,7 +42,7 @@ const empty = computed(() => !store.state.commitments.length)
         <span class="kpi__value num">{{ store.overdue.length }}</span>
       </div>
       <div class="kpi kpi--brand">
-        <span class="kpi__label">Da fare oggi</span>
+        <span class="kpi__label">Task da fare oggi</span>
         <span class="kpi__value num">{{ todayOpen }}<small v-if="todayList.length"> / {{ todayList.length }}</small></span>
       </div>
       <div class="kpi">
@@ -53,9 +57,10 @@ const empty = computed(() => !store.state.commitments.length)
 
     <section v-if="empty" class="panel">
       <UiEmpty title="Nessun impegno ancora" icon="bell">
-        Aggiungi scadenze e attività ricorrenti — revisione dell'auto, filtri del condizionatore, bollette — e le ritroverai qui, nel calendario e tra i task del giorno, della settimana, del mese e dell'anno.
+        Aggiungi task e scadenze ricorrenti — revisione dell'auto, filtri del condizionatore, bollette — ed eventi come viaggi o compleanni: li ritroverai qui, nel calendario e tra i task del giorno, della settimana, del mese e dell'anno.
         <template #actions>
-          <UiButton variant="primary" icon="plus" @click="store.openEditor()">Nuovo impegno</UiButton>
+          <UiButton variant="primary" icon="plus" @click="store.openEditor()">Nuovo task</UiButton>
+          <UiButton icon="calendar" @click="store.openEditor({ kind: 'event' })">Nuovo evento</UiButton>
           <UiButton @click="router.push({ name: 'agenda-commitments' })">Scegli da un modello</UiButton>
         </template>
       </UiEmpty>
@@ -68,13 +73,21 @@ const empty = computed(() => !store.state.commitments.length)
           <ul class="list"><OccurrenceRow v-for="o in store.overdue" :key="o.commitment.id + o.date" :occurrence="o" /></ul>
         </section>
 
+        <section v-if="todayEvents.length" class="panel">
+          <div class="panel__head">
+            <h2 class="panel__title"><UiIcon name="calendar" /> Eventi di oggi</h2>
+            <UiButton size="sm" variant="ghost" icon="plus" @click="store.openEditor({ date: store.today, kind: 'event' })">Evento</UiButton>
+          </div>
+          <ul class="list"><OccurrenceRow v-for="o in todayEvents" :key="o.commitment.id + o.date" :occurrence="o" :show-date="false" /></ul>
+        </section>
+
         <section class="panel">
           <div class="panel__head">
-            <h2 class="panel__title"><UiIcon name="sun" /> Oggi</h2>
-            <UiButton size="sm" variant="ghost" icon="plus" @click="store.openEditor({ date: store.today })">Aggiungi</UiButton>
+            <h2 class="panel__title"><UiIcon name="sun" /> Task di oggi</h2>
+            <UiButton size="sm" variant="ghost" icon="plus" @click="store.openEditor({ date: store.today })">Task</UiButton>
           </div>
           <ul v-if="todayList.length" class="list"><OccurrenceRow v-for="o in todayList" :key="o.commitment.id + o.date" :occurrence="o" :show-date="false" /></ul>
-          <p v-else class="muted small">Niente in programma per oggi.</p>
+          <p v-else class="muted small">Nessun task per oggi.</p>
         </section>
 
         <section class="panel">
@@ -103,7 +116,8 @@ const empty = computed(() => !store.state.commitments.length)
             <li v-for="h in todayHabits" :key="h.id">
               <button type="button" class="hb__btn" :class="{ on: habits.isDone(h.id, store.today) }" :aria-pressed="habits.isDone(h.id, store.today)" :style="{ '--c': `var(${h.color})` }" @click="habits.toggle(h.id, store.today)">
                 <span aria-hidden="true">{{ h.emoji }}</span>
-                {{ h.name }}
+                <span class="hb__name">{{ h.name }}</span>
+                <small v-if="periodLabel(h, habits.doneSet(h.id), store.today)" class="muted">{{ periodLabel(h, habits.doneSet(h.id), store.today) }}</small>
                 <UiIcon v-if="habits.isDone(h.id, store.today)" name="check" :size="15" class="hb__tick" />
               </button>
             </li>
@@ -155,7 +169,9 @@ const empty = computed(() => !store.state.commitments.length)
 }
 .hb__btn:hover { background: var(--surface-2); }
 .hb__btn.on { background: color-mix(in srgb, var(--c) 14%, var(--surface)); border-color: color-mix(in srgb, var(--c) 45%, transparent); }
-.hb__tick { margin-left: auto; color: var(--positive); }
+.hb__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hb__btn small { white-space: nowrap; }
+.hb__tick { margin-left: auto; color: var(--positive); flex: none; }
 .gl { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .gl li { display: flex; gap: 10px; align-items: flex-start; }
 .gl li div { display: flex; flex-direction: column; min-width: 0; }

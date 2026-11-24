@@ -15,6 +15,10 @@ export interface Goal {
   area: string
   /** Perché è importante: la motivazione da rileggere. */
   why?: string
+  /** Dettagli liberi: cosa significa raggiungerlo, appunti, risorse. */
+  description?: string
+  /** Collegamento a una pagina esterna (documento, corso, iscrizione…). Solo http/https. */
+  link?: string
   targetDate?: IsoDay | null
   milestones: Milestone[]
   /** Avanzamento manuale (0–100) quando non ci sono tappe. */
@@ -42,6 +46,33 @@ export const GOAL_AREAS: GoalArea[] = [
   { id: 'altro', label: 'Altro', emoji: '⭐', color: '--series-other' },
 ]
 export const areaOf = (id: string): GoalArea => GOAL_AREAS.find((a) => a.id === id) ?? GOAL_AREAS[GOAL_AREAS.length - 1]
+
+/**
+ * Indirizzo web normalizzato e sicuro da usare in un link: aggiunge «https://» se manca
+ * e accetta solo http/https (niente `javascript:` o simili). Null se non valido.
+ */
+export function safeUrl(raw: string | null | undefined): string | null {
+  const s = (raw ?? '').trim()
+  if (!s) return null
+  const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(s) ? s : `https://${s}`
+  try {
+    const u = new URL(withScheme)
+    return u.protocol === 'http:' || u.protocol === 'https:' ? u.href : null
+  } catch {
+    return null
+  }
+}
+
+/** Testo breve per mostrare un link: dominio senza «www.» più l'eventuale percorso. */
+export function linkLabel(url: string): string {
+  try {
+    const u = new URL(url)
+    const path = u.pathname === '/' ? '' : u.pathname
+    return `${u.hostname.replace(/^www\./, '')}${path}`
+  } catch {
+    return url
+  }
+}
 
 /** Avanzamento 0–1: dalle tappe completate se ci sono, altrimenti dal valore manuale. */
 export function goalProgress(g: Goal): number {

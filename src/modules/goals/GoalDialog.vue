@@ -5,7 +5,7 @@ import UiButton from '@/core/ui/UiButton.vue'
 import UiCombobox, { type ComboOption } from '@/core/ui/UiCombobox.vue'
 import UiDatePicker from '@/core/ui/UiDatePicker.vue'
 import { uid } from '@/core/utils/persisted'
-import { GOAL_AREAS, type Goal } from './domain'
+import { GOAL_AREAS, safeUrl, type Goal } from './domain'
 import { useGoalsStore } from './store'
 
 const props = defineProps<{ open: boolean; goal: Goal | null }>()
@@ -13,7 +13,7 @@ const emit = defineEmits<{ close: [] }>()
 const store = useGoalsStore()
 
 interface MilestoneForm { id: string; title: string; due: string; done: boolean }
-const form = reactive({ title: '', area: 'crescita', why: '', targetDate: '', manualProgress: 0, milestones: [] as MilestoneForm[] })
+const form = reactive({ title: '', area: 'crescita', why: '', description: '', link: '', targetDate: '', manualProgress: 0, milestones: [] as MilestoneForm[] })
 const newMilestone = ref('')
 const confirmDelete = ref(false)
 
@@ -27,6 +27,8 @@ watch(
     form.title = g?.title ?? ''
     form.area = g?.area ?? 'crescita'
     form.why = g?.why ?? ''
+    form.description = g?.description ?? ''
+    form.link = g?.link ?? ''
     form.targetDate = g?.targetDate ?? ''
     form.manualProgress = g?.manualProgress ?? 0
     form.milestones = (g?.milestones ?? []).map((m) => ({ ...m, due: m.due ?? '' }))
@@ -35,7 +37,8 @@ watch(
 )
 
 const areaOptions: ComboOption[] = GOAL_AREAS.map((a) => ({ value: a.id, label: a.label, emoji: a.emoji }))
-const valid = computed(() => !!form.title.trim())
+const linkInvalid = computed(() => !!form.link.trim() && !safeUrl(form.link))
+const valid = computed(() => !!form.title.trim() && !linkInvalid.value)
 
 function addMilestone() {
   const t = newMilestone.value.trim()
@@ -56,6 +59,8 @@ function save() {
     title: form.title.trim(),
     area: form.area,
     why: form.why.trim() || undefined,
+    description: form.description.trim() || undefined,
+    link: safeUrl(form.link) ?? undefined,
     targetDate: form.targetDate || null,
     manualProgress: Math.min(100, Math.max(0, Number(form.manualProgress) || 0)),
     milestones: form.milestones.filter((m) => m.title.trim()).map((m) => ({ ...m, title: m.title.trim(), due: m.due || null })),
@@ -95,6 +100,15 @@ function remove() {
       <label class="gf__field">
         <span>Perché è importante per me</span>
         <textarea v-model="form.why" class="input" rows="2" maxlength="600" placeholder="La motivazione da rileggere quando cala l'entusiasmo" />
+      </label>
+      <label class="gf__field">
+        <span>Descrizione <em class="muted">(facoltativa)</em></span>
+        <textarea v-model="form.description" class="input" rows="3" maxlength="2000" placeholder="Dettagli, criteri per considerarlo raggiunto, appunti…" />
+      </label>
+      <label class="gf__field">
+        <span>Link <em class="muted">(facoltativo)</em></span>
+        <input v-model="form.link" class="input" type="url" inputmode="url" maxlength="500" placeholder="https://… (documento, corso, iscrizione)" autocomplete="off" :aria-invalid="linkInvalid" />
+        <small v-if="linkInvalid" class="gf__err">Indirizzo non valido: usa un link che inizi con http:// o https://</small>
       </label>
 
       <fieldset class="gf__ms">
@@ -144,6 +158,7 @@ function remove() {
 .gf__add { display: flex; gap: 8px; }
 .gf__add .input { flex: 1; }
 .gf__del { margin-right: auto; color: var(--negative); }
+.gf__err { color: var(--negative); }
 @media (max-width: 560px) {
   .gf__grid { grid-template-columns: 1fr; }
   .gf__ms li { grid-template-columns: auto minmax(0, 1fr) auto; }

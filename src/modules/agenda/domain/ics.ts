@@ -5,7 +5,7 @@
  */
 import { addDaysTo, type IsoDay } from '../../../core/utils/dates.js'
 import { categoryOf } from './catalog.js'
-import { nextDue, type Commitment, type Completion } from './recurrence.js'
+import { extraDays, halfMonthDays, isEvent, nextDue, type Commitment, type Completion } from './recurrence.js'
 
 const BYDAY = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU']
 const compact = (d: IsoDay) => d.replace(/-/g, '')
@@ -29,6 +29,13 @@ function fold(line: string): string {
 export function rrule(c: Commitment): string | null {
   const r = c.repeat
   if (r.unit === 'none') return null
+  if (r.unit === 'halfmonth') {
+    // Ogni mezzo mese = mensile in due giorni; ogni 2k mezzi mesi = ogni k mesi; altrimenti approssimato a 15 giorni.
+    const [a, b] = halfMonthDays(c.start)
+    const n = Math.max(1, r.every)
+    const base = n === 1 ? `FREQ=MONTHLY;BYMONTHDAY=${a},${b}` : n % 2 === 0 ? `FREQ=MONTHLY;INTERVAL=${n / 2}` : `FREQ=DAILY;INTERVAL=${n * 15}`
+    return c.until ? `${base};UNTIL=${compact(c.until)}` : base
+  }
   const freq = { day: 'DAILY', week: 'WEEKLY', month: 'MONTHLY', year: 'YEARLY' }[r.unit]
   const parts = [`FREQ=${freq}`]
   if (r.every > 1) parts.push(`INTERVAL=${r.every}`)
@@ -44,7 +51,7 @@ export function buildIcs(commitments: Commitment[], completions: Completion[], t
   const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Growth Planner//Agenda//IT', 'CALSCALE:GREGORIAN', 'X-WR-CALNAME:Scadenze personali']
   for (const c of commitments) {
     if (c.paused) continue
-    const fixed = c.mode === 'fixed' || c.repeat.unit === 'none'
+    const fixed = isEvent(c) || c.mode === 'fixed' || c.repeat.unit === 'none'
     const start = fixed ? c.start : nextDue(c, completions, today)
     if (!start) continue
     const cat = categoryOf(c.category)
@@ -53,7 +60,8 @@ export function buildIcs(commitments: Commitment[], completions: Completion[], t
       `UID:${c.id}${fixed ? '' : `-${compact(start)}`}@growth-planner`,
       `DTSTAMP:${dtstamp}`,
       `DTSTART;VALUE=DATE:${compact(start)}`,
-      `DTEND;VALUE=DATE:${compact(addDaysTo(start, 1))}`,
+      // DTEND è esclusivo: il giorno dopo l'ultimo.
+      `DTEND;VALUE=DATE:${compact(addDaysTo(start, 1 + extraDays(c)))}`,
       `SUMMARY:${escapeText(`${cat.emoji} ${c.title}`)}`,
       `CATEGORIES:${escapeText(cat.label)}`,
     )

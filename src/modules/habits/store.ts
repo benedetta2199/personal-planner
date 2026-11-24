@@ -11,7 +11,7 @@ interface HabitsData {
   log: Record<string, IsoDay[]>
 }
 
-export type HabitDraft = Pick<Habit, 'name' | 'emoji' | 'color' | 'weekdays'>
+export type HabitDraft = Pick<Habit, 'name' | 'emoji' | 'color' | 'weekdays' | 'frequency' | 'target'>
 
 export const useHabitsStore = defineStore('habits', () => {
   const { state, saveFailed } = persistedState<HabitsData>('gp.habits.v1', () => ({ version: 1, habits: [], log: {} }))

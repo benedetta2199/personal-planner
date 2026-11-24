@@ -9,8 +9,9 @@ import UiEmpty from '@/core/ui/UiEmpty.vue'
 import UiIcon from '@/core/ui/UiIcon.vue'
 import UiAlert from '@/core/ui/UiAlert.vue'
 import { addDaysTo, daysBetween, fmtFullDate, fmtShortDay, relativeDays, todayDay } from '@/core/utils/dates'
+import { useOpenFromQuery, usePrimaryAction } from '@/core/ui/primaryAction'
 import GoalDialog from './GoalDialog.vue'
-import { areaOf, goalProgress, nextMilestone, type Goal, type GoalStatus } from './domain'
+import { areaOf, goalProgress, linkLabel, nextMilestone, safeUrl, type Goal, type GoalStatus } from './domain'
 import { useGoalsStore } from './store'
 
 const store = useGoalsStore()
@@ -35,6 +36,19 @@ const dueSoon = computed(() => store.datedItems(today, addDaysTo(today, 30)).fil
 
 const dialog = ref<{ open: boolean; goal: Goal | null }>({ open: false, goal: null })
 const edit = (goal: Goal | null) => (dialog.value = { open: true, goal })
+usePrimaryAction({ label: 'Nuovo obiettivo', run: () => edit(null) })
+useOpenFromQuery(() => edit(null))
+
+/** Card con i testi lunghi (motivazione, descrizione) aperti per intero. */
+const expanded = ref(new Set<string>())
+function toggleExpand(id: string) {
+  const s = new Set(expanded.value)
+  if (s.has(id)) s.delete(id)
+  else s.add(id)
+  expanded.value = s
+}
+/** Mostra «Leggi tutto» solo se i testi possono superare le righe visibili. */
+const isLong = (g: Goal) => (g.why?.length ?? 0) > 140 || (g.description?.length ?? 0) > 160 || (g.description?.split('\n').length ?? 0) > 3
 
 const quick = ref<Record<string, string>>({})
 function addQuick(g: Goal) {
@@ -80,13 +94,23 @@ const pct = (v: number) => `${Math.round(v * 100)}%`
         <header class="goal__head">
           <span class="goal__emoji" aria-hidden="true">{{ areaOf(g.area).emoji }}</span>
           <div class="goal__title">
-            <h2>{{ g.title }}</h2>
+            <h2 :title="g.title">{{ g.title }}</h2>
             <span class="muted small">{{ areaOf(g.area).label }}</span>
           </div>
           <UiButton size="sm" variant="ghost" icon="edit" aria-label="Modifica obiettivo" @click="edit(g)" />
         </header>
 
-        <p v-if="g.why" class="goal__why">«{{ g.why }}»</p>
+        <div v-if="g.why || g.description || safeUrl(g.link)" class="goal__info" :class="{ open: expanded.has(g.id) }">
+          <p v-if="g.why" class="goal__why clamp">«{{ g.why }}»</p>
+          <p v-if="g.description" class="goal__desc clamp">{{ g.description }}</p>
+          <button v-if="isLong(g)" type="button" class="goal__more small" :aria-expanded="expanded.has(g.id)" @click="toggleExpand(g.id)">
+            {{ expanded.has(g.id) ? 'Mostra meno' : 'Leggi tutto' }}
+          </button>
+          <a v-if="safeUrl(g.link)" :href="safeUrl(g.link)!" target="_blank" rel="noopener noreferrer" class="goal__link small" :title="safeUrl(g.link)!">
+            <UiIcon name="link" :size="14" />
+            <span>{{ linkLabel(safeUrl(g.link)!) }}</span>
+          </a>
+        </div>
 
         <div class="goal__progress">
           <div class="bar" role="progressbar" :aria-valuenow="Math.round(goalProgress(g) * 100)" aria-valuemin="0" aria-valuemax="100" :aria-label="`Avanzamento di ${g.title}`"><span :style="{ width: pct(goalProgress(g)) }" /></div>
@@ -96,7 +120,7 @@ const pct = (v: number) => `${Math.round(v * 100)}%`
 
         <ul v-if="g.milestones.length" class="ms">
           <li v-for="m in g.milestones" :key="m.id" :class="{ done: m.done, next: nextMilestone(g)?.id === m.id }">
-            <label>
+            <label :title="m.title">
               <input type="checkbox" :checked="m.done" @change="store.toggleMilestone(g.id, m.id)" />
               <span>{{ m.title }}</span>
             </label>
@@ -141,8 +165,22 @@ const pct = (v: number) => `${Math.round(v * 100)}%`
 .goal__head { display: flex; align-items: flex-start; gap: 12px; }
 .goal__emoji { width: 42px; height: 42px; border-radius: 14px; display: grid; place-items: center; font-size: 1.3rem; background: color-mix(in srgb, var(--c) 16%, transparent); flex-shrink: 0; }
 .goal__title { flex: 1; min-width: 0; }
-.goal__title h2 { font-size: 1.08rem; font-weight: 600; overflow-wrap: anywhere; }
+/* Testi lunghi troncati con «…»: il titolo su 2 righe, i testi su 3 (aperti con «Leggi tutto»). */
+.goal__title h2 {
+  font-size: 1.08rem; font-weight: 600; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
+}
+.goal__info { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; overflow-wrap: anywhere; }
+.goal__info.open .clamp { display: block; -webkit-line-clamp: unset; line-clamp: none; }
 .goal__why { font-size: 0.88rem; color: var(--text-secondary); font-style: italic; }
+.goal__desc { font-size: 0.88rem; color: var(--text-primary); white-space: pre-line; }
+.goal__more { all: unset; align-self: flex-start; cursor: pointer; color: var(--accent); font-weight: 500; }
+.goal__more:hover { text-decoration: underline; }
+.goal__more:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
+.goal__link { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; max-width: 100%; padding: 3px 10px; border-radius: 999px; background: var(--surface-2); color: var(--text-secondary); }
+.goal__link span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.goal__link:hover { color: var(--text-primary); text-decoration: none; background: color-mix(in srgb, var(--c) 14%, var(--surface)); }
 .goal__progress { display: flex; align-items: center; gap: 10px; }
 .bar { flex: 1; height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
 .bar span { display: block; height: 100%; background: var(--c); border-radius: inherit; transition: width 0.3s ease; }
@@ -153,6 +191,8 @@ const pct = (v: number) => `${Math.round(v * 100)}%`
 .ms li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 8px; border-radius: 10px; }
 .ms li.next { background: var(--surface-2); }
 .ms label { display: flex; align-items: center; gap: 8px; cursor: pointer; min-width: 0; font-size: 0.9rem; }
+.ms label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ms label input { flex: none; }
 .ms li.done label span { text-decoration: line-through; color: var(--text-muted); }
 .ms__due { color: var(--text-muted); white-space: nowrap; }
 .ms__due.late { color: var(--negative); font-weight: 500; }

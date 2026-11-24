@@ -1,7 +1,9 @@
 <script setup lang="ts">
 /** Home: un riepilogo di ogni modulo con collegamenti diretti alle sue pagine. */
 import { computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import UiIcon from '@/core/ui/UiIcon.vue'
+import { useAuthStore } from '@/app/auth/authStore'
 import type { IconName } from '@/core/ui/icons'
 import { addDaysTo, fmtLongDay, fmtMonthYear, fmtShortDay, isoWeekday, relativeDays, todayDay, WEEKDAY_LETTERS } from '@/core/utils/dates'
 import { formatMoney, formatPercent } from '@/core/utils/format'
@@ -11,7 +13,7 @@ import { useAgendaStore } from '@/modules/agenda/store/agendaStore'
 import { useGoalsStore } from '@/modules/goals/store'
 import { areaOf, goalProgress, nextMilestone } from '@/modules/goals/domain'
 import { useHabitsStore } from '@/modules/habits/store'
-import { isScheduled, streak } from '@/modules/habits/domain'
+import { isDueOn, isPeriodic, streak } from '@/modules/habits/domain'
 import { MOODS, useJournalStore } from '@/modules/journal/store'
 
 const finance = useFinanceStore()
@@ -21,6 +23,13 @@ const habits = useHabitsStore()
 const journal = useJournalStore()
 
 onMounted(() => void finance.init())
+
+const auth = useAuthStore()
+const router = useRouter()
+async function logout() {
+  auth.logout()
+  await router.replace({ name: 'login' })
+}
 
 const today = computed(() => agenda.today)
 const greeting = computed(() => {
@@ -93,12 +102,13 @@ const topGoals = computed(() =>
 )
 
 // ---- Abitudini --------------------------------------------------------------
-const todayHabits = computed(() => habits.habits.filter((h) => isScheduled(h, today.value)))
+const todayHabits = computed(() => habits.habits.filter((h) => isDueOn(h, habits.doneSet(h.id), today.value)))
 const habitsDone = computed(() => todayHabits.value.filter((h) => habits.isDone(h.id, today.value)).length)
 const habitsRatio = computed(() => (todayHabits.value.length ? habitsDone.value / todayHabits.value.length : 0))
 const RING = 2 * Math.PI * 34
 const bestStreak = computed(() =>
-  habits.habits.reduce<{ name: string; emoji: string; n: number } | null>((best, h) => {
+  // Serie in giorni: solo le abitudini settimanali (le mensili/quindicinali si contano in periodi).
+  habits.habits.filter((h) => !isPeriodic(h)).reduce<{ name: string; emoji: string; n: number } | null>((best, h) => {
     const n = streak(h, habits.doneSet(h.id), today.value)
     return n > (best?.n ?? 0) ? { name: h.name, emoji: h.emoji, n } : best
   }, null),
@@ -130,6 +140,11 @@ const journalStreak = computed(() => {
   <div class="home">
     <!-- Benvenuto + la giornata in sintesi -->
     <header class="hero">
+      <!-- Su mobile la barra in basso non ha «Esci»: si trova qui -->
+      <button type="button" class="hero__logout" title="Esci (elimina il token da questo dispositivo)" @click="logout">
+        <UiIcon name="logout" :size="16" />
+        Esci
+      </button>
       <div class="hero__text">
         <p class="hero__date">{{ fmtLongDay(today) }}</p>
         <h1>{{ greeting }}</h1>
@@ -351,6 +366,14 @@ const journalStreak = computed(() => {
   pointer-events: none;
 }
 .hero__text { position: relative; display: flex; flex-direction: column; gap: 4px; }
+.hero__logout {
+  display: none; position: absolute; top: 14px; right: 14px; z-index: 1;
+  align-items: center; gap: 6px; padding: 6px 12px; border: 0; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7); color: var(--on-brand); font: inherit; font-size: 0.8rem; font-weight: 550; cursor: pointer;
+}
+.hero__logout:hover { background: #fff; }
+.hero__logout:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 640px) { .hero__logout { display: inline-flex; } }
 .hero__date { font-size: 0.9rem; font-weight: 500; opacity: 0.8; }
 .hero h1 { font-size: clamp(1.9rem, 3vw, 2.6rem); font-weight: 500; letter-spacing: -0.035em; }
 .hero__pills { position: relative; display: flex; flex-wrap: wrap; gap: var(--space-2); }

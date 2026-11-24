@@ -4,19 +4,26 @@ import { computed, ref } from 'vue'
 import UiButton from '@/core/ui/UiButton.vue'
 import UiEmpty from '@/core/ui/UiEmpty.vue'
 import UiIcon from '@/core/ui/UiIcon.vue'
-import { daysBetween, fmtFullDate, relativeDays } from '@/core/utils/dates'
+import { addDaysTo, daysBetween, fmtFullDate, relativeDays } from '@/core/utils/dates'
 import { CATEGORIES, TEMPLATES, categoryOf, remindLabel, type CommitmentTemplate } from '../domain/catalog'
-import { recurrenceLabel, type Commitment } from '../domain/recurrence'
+import UiSegmented from '@/core/ui/UiSegmented.vue'
+import { extraDays, isEvent, kindOf, recurrenceLabel, type Commitment, type CommitmentKind } from '../domain/recurrence'
 import { useAgendaStore } from '../store/agendaStore'
 
 const store = useAgendaStore()
 const query = ref('')
 const showTemplates = ref(false)
+const kind = ref<CommitmentKind | 'all'>('all')
+const KINDS = [
+  { value: 'all' as const, label: 'Tutti' },
+  { value: 'task' as const, label: 'Task' },
+  { value: 'event' as const, label: 'Eventi' },
+]
 
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 const groups = computed(() => {
   const q = norm(query.value.trim())
-  const list = store.commitments.filter((c) => !q || norm(`${c.title} ${c.notes ?? ''}`).includes(q))
+  const list = store.commitments.filter((c) => (kind.value === 'all' || kindOf(c) === kind.value) && (!q || norm(`${c.title} ${c.notes ?? ''}`).includes(q)))
   return CATEGORIES.map((cat) => ({
     cat,
     items: list
@@ -29,6 +36,7 @@ const groups = computed(() => {
 function tone(c: Commitment, next: string | null) {
   if (c.paused || !next) return 'muted'
   const n = daysBetween(store.today, next)
+  if (isEvent(c) && n <= 0) return 'today'
   if (n < 0) return 'late'
   if (n === 0) return 'today'
   return n <= c.remindDays ? 'soon' : 'ok'
@@ -57,10 +65,13 @@ function download() {
 <template>
   <div class="cm">
     <div class="cm__bar">
-      <label class="cm__search">
-        <UiIcon name="search" :size="16" />
-        <input v-model="query" class="input" type="search" placeholder="Cerca un impegno" aria-label="Cerca un impegno" />
-      </label>
+      <div class="row cm__filters">
+        <label class="cm__search">
+          <UiIcon name="search" :size="16" />
+          <input v-model="query" class="input" type="search" placeholder="Cerca un impegno" aria-label="Cerca un impegno" />
+        </label>
+        <UiSegmented v-model="kind" :options="KINDS" label="Mostra" class="cm__kind" />
+      </div>
       <div class="row">
         <UiButton icon="grid" :variant="showTemplates ? 'primary' : 'secondary'" :aria-expanded="showTemplates" @click="showTemplates = !showTemplates">Modelli</UiButton>
         <UiButton icon="download" :disabled="!store.state.commitments.length" title="File .ics da importare in Google Calendar, Apple Calendar o Outlook" @click="download">Esporta calendario</UiButton>
@@ -89,9 +100,12 @@ function download() {
       <ul class="cm__list">
         <li v-for="{ c, next, last } in g.items" :key="c.id" class="cm__item" :class="{ paused: c.paused }">
           <div class="cm__main">
-            <button type="button" class="cm__title" @click="store.openEditor({ commitment: c })">{{ c.title }}</button>
+            <button type="button" class="cm__title" :title="c.title" @click="store.openEditor({ commitment: c })">
+              <UiIcon v-if="isEvent(c)" name="calendar" :size="14" class="cm__evt" />{{ c.title }}
+            </button>
             <span class="muted small">
-              {{ recurrenceLabel(c.repeat, c.start) }}<template v-if="c.mode === 'afterDone' && c.repeat.unit !== 'none'"> dal completamento</template>
+              <template v-if="isEvent(c)">Evento<template v-if="extraDays(c)"> di {{ extraDays(c) + 1 }} giorni</template> · {{ c.repeat.unit === 'none' ? 'una volta' : recurrenceLabel(c.repeat, c.start).toLowerCase() }}</template>
+              <template v-else>{{ recurrenceLabel(c.repeat, c.start) }}<template v-if="c.mode === 'afterDone' && c.repeat.unit !== 'none'"> dal completamento</template></template>
               · {{ remindLabel(c.remindDays).toLowerCase() }}
               <template v-if="last"> · ultima volta il {{ fmtFullDate(last.doneOn) }}</template>
             </span>
@@ -101,12 +115,13 @@ function download() {
             <template v-if="c.paused">In pausa</template>
             <template v-else-if="next">
               <strong>{{ fmtFullDate(next) }}</strong>
-              <span>{{ relativeDays(next, store.today) }}</span>
+              <span v-if="isEvent(c) && next <= store.today">in corso fino al {{ fmtFullDate(addDaysTo(next, extraDays(c))) }}</span>
+              <span v-else>{{ relativeDays(next, store.today) }}</span>
             </template>
             <template v-else>Concluso</template>
           </div>
           <div class="cm__actions">
-            <UiButton v-if="next && !c.paused" size="sm" icon="check" :title="`Segna come fatto oggi (scadenza del ${fmtFullDate(next)})`" @click="store.complete(c.id, next)">Fatto</UiButton>
+            <UiButton v-if="next && !c.paused && !isEvent(c)" size="sm" icon="check" :title="`Segna come fatto oggi (scadenza del ${fmtFullDate(next)})`" @click="store.complete(c.id, next)">Fatto</UiButton>
             <UiButton size="sm" variant="ghost" :aria-label="c.paused ? 'Riattiva' : 'Metti in pausa'" :title="c.paused ? 'Riattiva' : 'Metti in pausa'" @click="store.togglePause(c.id)">{{ c.paused ? 'Riattiva' : 'Pausa' }}</UiButton>
             <UiButton size="sm" variant="ghost" icon="edit" aria-label="Modifica" @click="store.openEditor({ commitment: c })" />
           </div>
@@ -123,6 +138,9 @@ function download() {
 <style scoped>
 .cm { display: flex; flex-direction: column; gap: var(--space-4); }
 .cm__bar { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.cm__filters { flex: 1; flex-wrap: wrap; gap: 10px; }
+.cm__kind { background: var(--surface); }
+.cm__evt { vertical-align: -2px; margin-right: 6px; color: var(--text-secondary); }
 .cm__search { position: relative; flex: 1; max-width: 360px; min-width: 200px; display: flex; }
 .cm__search svg { position: absolute; left: 14px; top: 12px; color: var(--text-muted); }
 .cm__search .input { width: 100%; padding-left: 38px; border-radius: 999px; border-color: transparent; }

@@ -13,6 +13,7 @@ import EntryDialog from '../components/EntryDialog.vue'
 import InstrumentDialog from '../components/InstrumentDialog.vue'
 import MonthInvestments from '../components/MonthInvestments.vue'
 import { FLOW_META } from '../presentation'
+import { useOpenFromQuery, usePrimaryAction } from '@/core/ui/primaryAction'
 
 const store = useFinanceStore()
 const today = todayIso()
@@ -80,6 +81,9 @@ function addOn(date: string) {
   pickedDate.value = date
   dialogOpen.value = true
 }
+/** «+» su mobile: nuova voce, nel giorno scelto sul calendario se ce n'è uno. */
+usePrimaryAction(() => ({ label: calendarDay.value ? `Aggiungi voce il ${calendarDayLabel.value}` : 'Aggiungi voce', run: addFromPanel }))
+useOpenFromQuery(add)
 function openOp(op: Operation) {
   selected.value = op
   dialogOpen.value = true
@@ -221,12 +225,6 @@ function onSaved(op: Operation | null) {
     <EntryDialog :open="dialogOpen" :operation="selected" :default-date="defaultDate" @close="dialogOpen = false" @saved="onSaved" @needs-instrument="askInstrument" />
     <InstrumentDialog :open="insOpen" :category="insCat" :subcategory="insSub" @close="insOpen = false" />
     <div v-if="toast" class="toast" role="status">{{ toast }}</div>
-
-    <!-- Mobile: azione principale sempre a portata di pollice -->
-    <button type="button" class="mv__fab" aria-label="Aggiungi voce" @click="add">
-      <UiIcon name="plus" :size="24" />
-      <span>Aggiungi</span>
-    </button>
   </div>
 </template>
 
@@ -241,16 +239,7 @@ function onSaved(op: Operation | null) {
   transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
 }
 .mv__add:hover { background: var(--ink-hover); transform: translateY(-1px); box-shadow: 0 10px 24px rgba(34, 64, 95, 0.32); }
-.mv__add:focus-visible, .mv__fab:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
-.mv__fab {
-  display: none; position: fixed; z-index: 55;
-  right: 16px; bottom: calc(84px + env(safe-area-inset-bottom));
-  align-items: center; gap: 6px; height: 56px; padding: 0 22px 0 18px;
-  border: 0; border-radius: 999px; background: var(--ink); color: var(--brand);
-  font: inherit; font-size: 1rem; font-weight: 600; cursor: pointer;
-  box-shadow: 0 10px 28px rgba(18, 24, 33, 0.3);
-}
-.mv__fab:active { transform: scale(0.97); }
+.mv__add:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 .mv__top { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 18px; align-items: stretch; }
 /* Le due card si dividono in parti uguali l'altezza della colonna (pari a quella degli investimenti). */
 .mv__summary { display: grid; grid-template-rows: 1fr 1fr; gap: 18px; min-width: 0; }
@@ -323,10 +312,8 @@ function onSaved(op: Operation | null) {
   .hero__go { width: 52px; height: 52px; }
   .toast { bottom: calc(150px + env(safe-area-inset-bottom)); }
 }
+/* Mobile: si aggiunge con il «+» al centro della barra in basso */
 @media (max-width: 640px) {
   .mv__add { display: none; }
-  .mv__fab { display: inline-flex; }
-  /* spazio perché il pulsante flottante non copra l'ultima riga */
-  .mv { padding-bottom: 72px; }
 }
 </style>

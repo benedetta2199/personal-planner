@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, reactive, ref } from 'vue'
 import { persistedState, uid } from '@/core/utils/persisted'
 import { addDaysTo, todayDay, type IsoDay } from '@/core/utils/dates'
-import { nextDue, occurrencesOf, type Commitment, type Completion, type Occurrence } from '../domain/recurrence'
+import { kindOf, nextDue, occurrencesOf, type Commitment, type CommitmentKind, type Completion, type Occurrence } from '../domain/recurrence'
 import { buildIcs } from '../domain/ics'
 import type { CommitmentTemplate } from '../domain/catalog'
 
@@ -54,6 +54,7 @@ export const useAgendaStore = defineStore('agenda', () => {
     state.value.completions = state.value.completions.filter((x) => !(x.commitmentId === id && x.due === due))
   }
   function toggle(o: Pick<Occurrence, 'commitment' | 'date'>) {
+    if (kindOf(o.commitment) === 'event') return
     if (isDone(o.commitment.id, o.date)) uncomplete(o.commitment.id, o.date)
     else complete(o.commitment.id, o.date)
   }
@@ -90,11 +91,18 @@ export const useAgendaStore = defineStore('agenda', () => {
   }
 
   /** Finestra di inserimento/modifica, condivisa da tutte le viste dell'agenda. */
-  const editor = reactive<{ open: boolean; commitment: Commitment | null; template: CommitmentTemplate | null; date: IsoDay | null }>({ open: false, commitment: null, template: null, date: null })
-  function openEditor(opts: { commitment?: Commitment | null; template?: CommitmentTemplate | null; date?: IsoDay | null } = {}) {
+  const editor = reactive<{ open: boolean; commitment: Commitment | null; template: CommitmentTemplate | null; date: IsoDay | null; kind: CommitmentKind }>({
+    open: false,
+    commitment: null,
+    template: null,
+    date: null,
+    kind: 'task',
+  })
+  function openEditor(opts: { commitment?: Commitment | null; template?: CommitmentTemplate | null; date?: IsoDay | null; kind?: CommitmentKind } = {}) {
     editor.commitment = opts.commitment ?? null
     editor.template = opts.template ?? null
     editor.date = opts.date ?? null
+    editor.kind = opts.commitment ? kindOf(opts.commitment) : (opts.kind ?? 'task')
     editor.open = true
   }
   const closeEditor = () => (editor.open = false)

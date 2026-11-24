@@ -8,6 +8,8 @@ import { modules } from './modules'
 import { useCloudSync } from './sync/cloudSync'
 import { useAuthStore } from './auth/authStore'
 import { readJson, writeJson } from '@/core/utils/storage'
+import { currentPrimaryAction, type PrimaryAction, type PrimaryMenuItem } from '@/core/ui/primaryAction'
+import { useAgendaStore } from '@/modules/agenda/store/agendaStore'
 
 /** Barriera d'errore globale: un errore in una vista non blocca l'intera app. */
 const fatal = ref<string | null>(null)
@@ -55,6 +57,39 @@ const cloudChip = computed(() => {
 })
 /** L'avviso compare solo nelle pagine del planner: il Finanze ha già il suo. */
 const showCloudAlert = computed(() => auth.isAuthenticated && (cloud.status.state === 'error' || cloud.status.state === 'needs-token') && !route.path.startsWith('/finanze'))
+
+// ---- Pulsante «+» al centro della barra mobile -------------------------------
+const agenda = useAgendaStore()
+const go = (name: string) => () => void router.push({ name, query: { nuovo: '1' } })
+function agendaNew(kind: 'task' | 'event') {
+  return () => {
+    if (!String(route.name ?? '').startsWith('agenda-')) void router.push({ name: kind === 'event' ? 'agenda-events' : 'agenda-today' })
+    agenda.openEditor({ kind })
+  }
+}
+/** Senza un'azione della pagina (es. Home): menu di inserimento rapido in tutti i moduli. */
+const QUICK_ADD: PrimaryAction = {
+  label: 'Aggiungi',
+  menu: [
+    { label: 'Spesa o entrata', icon: 'wallet', run: go('finance-month') },
+    { label: 'Task', icon: 'checkCircle', run: agendaNew('task') },
+    { label: 'Evento', icon: 'calendar', run: agendaNew('event') },
+    { label: 'Obiettivo', icon: 'target', run: go('goals') },
+    { label: 'Abitudine', icon: 'repeat', run: go('habits') },
+    { label: 'Pagina di diario', icon: 'book', run: go('journal') },
+  ],
+}
+const fab = computed(() => currentPrimaryAction.value ?? QUICK_ADD)
+const fabMenu = ref(false)
+watch(() => route.fullPath, () => (fabMenu.value = false))
+function onFab() {
+  if (fab.value.menu?.length) fabMenu.value = !fabMenu.value
+  else fab.value.run?.()
+}
+function pick(item: PrimaryMenuItem) {
+  fabMenu.value = false
+  item.run()
+}
 </script>
 
 <template>
@@ -78,16 +113,31 @@ const showCloudAlert = computed(() => auth.isAuthenticated && (cloud.status.stat
         </button>
       </div>
       <nav class="nav">
-        <RouterLink to="/" class="nav__item" exact-active-class="nav__item--on" title="Home">
+        <RouterLink to="/" class="nav__item" exact-active-class="nav__item--on" title="Home" style="order: 1">
           <UiIcon name="home" />
           <span class="nav__label">Home</span>
         </RouterLink>
-        <RouterLink v-for="m in modules" :key="m.id" :to="m.path" class="nav__item" active-class="nav__item--on" :title="m.label">
+        <RouterLink v-for="(m, i) in modules" :key="m.id" :to="m.path" class="nav__item" active-class="nav__item--on" :title="m.label" :style="{ order: i < 1 ? 1 : 3 }">
           <UiIcon :name="m.icon" />
           <span class="nav__label">{{ m.label }}</span>
           <span v-if="m.status === 'planned'" class="nav__soon">presto</span>
         </RouterLink>
+        <!-- Solo mobile: azione principale della pagina, al centro della barra -->
+        <div class="fab-slot" style="order: 2">
+          <button type="button" class="fab" :class="{ 'fab--open': fabMenu }" :aria-label="fab.label" :title="fab.label" :aria-expanded="fab.menu ? fabMenu : undefined" :aria-haspopup="fab.menu ? 'menu' : undefined" @click="onFab">
+            <UiIcon name="plus" :size="26" />
+          </button>
+        </div>
       </nav>
+      <template v-if="fabMenu && fab.menu">
+        <div class="fab-backdrop" aria-hidden="true" @click="fabMenu = false" />
+        <div class="fab-menu" role="menu" :aria-label="fab.label" @keydown.esc="fabMenu = false">
+          <button v-for="item in fab.menu" :key="item.label" type="button" role="menuitem" class="fab-menu__item" @click="pick(item)">
+            <UiIcon :name="item.icon" :size="18" />
+            {{ item.label }}
+          </button>
+        </div>
+      </template>
       <button v-if="cloudChip" type="button" class="cloud" :class="`cloud--${cloudChip.tone}`" :title="cloud.status.message ?? 'Agenda, Obiettivi, Abitudini e Diario'" @click="cloud.retry()">
         <span class="cloud__dot" aria-hidden="true" />
         <span class="cloud__text" role="status">{{ cloudChip.text }}</span>
@@ -202,6 +252,7 @@ const showCloudAlert = computed(() => auth.isAuthenticated && (cloud.status.stat
 .cloud--error { color: var(--status-warning); }
 .cloud-alert { margin-bottom: var(--space-5); }
 .main { padding: 36px 40px 48px; max-width: 1520px; width: 100%; min-width: 0; }
+.fab-slot, .fab-backdrop, .fab-menu { display: none; }
 
 /* Barra ridotta a sole icone: su richiesta su desktop, sempre su tablet */
 @media (min-width: 641px) {
@@ -239,9 +290,39 @@ const showCloudAlert = computed(() => auth.isAuthenticated && (cloud.status.stat
   .nav { flex-direction: row; justify-content: space-around; width: 100%; gap: 2px; }
   .nav__item { flex-direction: column; gap: 3px; padding: 6px 4px; font-size: 0.66rem; flex: 1; min-width: 0; border-radius: 12px; }
   .nav__item--on, .nav__item--on:hover { background: var(--brand-soft); color: var(--on-brand); }
-  .logout { margin-top: 0; flex-direction: column; gap: 3px; padding: 6px 4px; font-size: 0.66rem; border-radius: 10px; flex: none; }
-  .logout__text { display: block; }
-  .nav__label { display: block; }
+  /* «Esci» su mobile è nella Home: la barra resta simmetrica attorno al «+». */
+  .logout { display: none; }
+  .nav__label { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .main { padding: 22px 16px calc(88px + env(safe-area-inset-bottom)); }
+
+  .fab-slot { display: flex; justify-content: center; align-items: flex-start; flex: 1; min-width: 0; }
+  .fab {
+    position: relative; z-index: 52;
+    width: 56px; height: 56px; margin-top: -22px; border-radius: 50%; border: 4px solid var(--surface);
+    display: grid; place-items: center; cursor: pointer;
+    background: var(--ink); color: var(--brand);
+    box-shadow: 0 6px 18px rgba(18, 24, 33, 0.22);
+    transition: transform 0.15s ease;
+  }
+  .fab:active { transform: scale(0.95); }
+  .fab:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .fab :deep(svg) { transition: transform 0.2s ease; }
+  .fab--open :deep(svg) { transform: rotate(45deg); }
+  .fab-backdrop { display: block; position: fixed; inset: 0; z-index: 48; background: rgba(18, 24, 33, 0.25); }
+  .fab-menu {
+    display: flex; flex-direction: column; gap: 2px;
+    position: fixed; z-index: 51; left: 50%; transform: translateX(-50%);
+    bottom: calc(86px + env(safe-area-inset-bottom)); width: min(300px, calc(100vw - 32px));
+    padding: 8px; border-radius: 20px; background: var(--surface); box-shadow: 0 12px 32px rgba(18, 24, 33, 0.2);
+  }
+  .fab-menu__item {
+    display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 0; border-radius: 14px;
+    background: transparent; color: var(--text-primary); font: inherit; font-size: 0.95rem; text-align: left; cursor: pointer;
+  }
+  .fab-menu__item:hover, .fab-menu__item:focus-visible { background: var(--surface-2); outline: none; }
+  .fab-menu__item :deep(svg) { color: var(--text-secondary); }
+}
+@media (max-width: 640px) and (prefers-reduced-motion: reduce) {
+  .fab, .fab :deep(svg) { transition: none; }
 }
 </style>

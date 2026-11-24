@@ -15,6 +15,7 @@ import { ACCOUNT_TYPE_LABEL, CARD_THEME_META, subcategoryColor } from '../presen
 import { categoryIcon, guessCategoryEmoji, leadingEmoji } from '../categoryIcons'
 import UiColorPicker from '@/core/ui/UiColorPicker.vue'
 import EmojiPicker from '../components/EmojiPicker.vue'
+import { usePrimaryAction } from '@/core/ui/primaryAction'
 
 const store = useFinanceStore()
 const ledger = useLedgerStore()
@@ -57,6 +58,8 @@ function openAccount(a: AccountConfig | null, preset?: string) {
   accPreset.value = preset
   accDialog.value = true
 }
+/** «+» su mobile: nella sezione Conti crea un conto, altrove resta «Aggiungi voce» del modulo. */
+usePrimaryAction(() => (props.section === 'accounts' ? { label: 'Nuovo conto', run: () => openAccount(null) } : null))
 function deleteAccount(a: AccountConfig) {
   const n = ledger.usage('account', a.name)
   const extra = n ? ` ${n} voci manuali lo usano e resteranno collegate al nome «${a.name}».` : ''

@@ -1,27 +1,34 @@
 <script setup lang="ts">
 /**
- * Inserimento e modifica di un impegno: titolo, categoria, prossima scadenza, cadenza,
- * modo di calcolo (date fisse / dal completamento), preavviso e note.
+ * Inserimento e modifica di un task o di un evento: titolo, categoria, data (o intervallo di date
+ * per gli eventi su più giorni), cadenza, modo di calcolo (date fisse / dal completamento), preavviso e note.
  */
 import { computed, reactive, ref, watch } from 'vue'
 import UiDialog from '@/core/ui/UiDialog.vue'
 import UiButton from '@/core/ui/UiButton.vue'
 import UiAlert from '@/core/ui/UiAlert.vue'
+import UiSegmented from '@/core/ui/UiSegmented.vue'
 import UiCombobox, { type ComboOption } from '@/core/ui/UiCombobox.vue'
 import UiDatePicker from '@/core/ui/UiDatePicker.vue'
-import { fmtShortDay, isoWeekday, WEEKDAY_SHORT } from '@/core/utils/dates'
+import { addDaysTo, daysBetween, fmtShortDay, isoWeekday, WEEKDAY_SHORT } from '@/core/utils/dates'
 import { CATEGORIES, REMIND_OPTIONS, remindLabel } from '../domain/catalog'
-import { isValidDay, previewDates, recurrenceLabel, UNIT_LABEL, type RepeatUnit, type ScheduleMode } from '../domain/recurrence'
+import { isValidDay, previewDates, recurrenceLabel, UNIT_LABEL, type CommitmentKind, type RepeatUnit, type ScheduleMode } from '../domain/recurrence'
 import { useAgendaStore } from '../store/agendaStore'
 
 const store = useAgendaStore()
 const ed = store.editor
+
+const KINDS: { value: CommitmentKind; label: string }[] = [
+  { value: 'task', label: 'Task' },
+  { value: 'event', label: 'Evento' },
+]
 
 /** Cadenze rapide; «custom» apre i campi «ogni N unità». */
 const PRESETS: { id: string; label: string; unit: RepeatUnit; every: number }[] = [
   { id: 'none', label: 'Una volta', unit: 'none', every: 1 },
   { id: 'day', label: 'Ogni giorno', unit: 'day', every: 1 },
   { id: 'week', label: 'Ogni settimana', unit: 'week', every: 1 },
+  { id: 'half', label: 'Ogni mezzo mese', unit: 'halfmonth', every: 1 },
   { id: 'month', label: 'Ogni mese', unit: 'month', every: 1 },
   { id: 'm3', label: 'Ogni 3 mesi', unit: 'month', every: 3 },
   { id: 'm6', label: 'Ogni 6 mesi', unit: 'month', every: 6 },
@@ -30,9 +37,12 @@ const PRESETS: { id: string; label: string; unit: RepeatUnit; every: number }[] 
 ]
 
 const form = reactive({
+  kind: 'task' as CommitmentKind,
   title: '',
   category: 'casa',
   start: store.today,
+  /** Solo eventi: ultimo giorno (vuoto = evento di un giorno). */
+  end: '',
   unit: 'none' as RepeatUnit,
   every: 1,
   weekdays: [] as number[],
@@ -51,9 +61,11 @@ watch(
     confirmDelete.value = false
     const c = ed.commitment
     const t = ed.template
+    form.kind = ed.kind
     form.title = c?.title ?? t?.title ?? ''
     form.category = c?.category ?? t?.category ?? 'casa'
     form.start = c?.start ?? ed.date ?? store.today
+    form.end = c?.end ?? ''
     form.unit = c?.repeat.unit ?? t?.repeat.unit ?? 'none'
     form.every = c?.repeat.every ?? t?.repeat.every ?? 1
     form.weekdays = [...(c?.repeat.weekdays ?? [])]
@@ -86,20 +98,32 @@ function toggleWeekday(d: number) {
 const activeWeekdays = computed(() => (form.weekdays.length ? form.weekdays : isValidDay(form.start) ? [isoWeekday(form.start)] : []))
 
 const catOptions: ComboOption[] = CATEGORIES.map((c) => ({ value: c.id, label: c.label, emoji: c.emoji }))
+const isEvent = computed(() => form.kind === 'event')
 const repeating = computed(() => form.unit !== 'none')
-/** «Dal completamento» ha senso per cadenze lunghe, non per attività quotidiane o su più giorni della settimana. */
-const modeAllowed = computed(() => repeating.value && form.unit !== 'day' && !(form.unit === 'week' && activeWeekdays.value.length > 1))
+/** «Dal completamento» ha senso per i task con cadenze lunghe, non per eventi, attività quotidiane o su più giorni della settimana. */
+const modeAllowed = computed(() => !isEvent.value && repeating.value && form.unit !== 'day' && !(form.unit === 'week' && activeWeekdays.value.length > 1))
 const effectiveMode = computed<ScheduleMode>(() => (modeAllowed.value ? form.mode : 'fixed'))
 const repeat = computed(() => ({ unit: form.unit, every: Math.max(1, Math.floor(Number(form.every) || 1)), ...(form.unit === 'week' && form.weekdays.length ? { weekdays: [...form.weekdays] } : {}) }))
-const valid = computed(() => !!form.title.trim() && isValidDay(form.start) && (!form.until || form.until >= form.start))
+const endBeforeStart = computed(() => isEvent.value && !!form.end && form.end < form.start)
+const valid = computed(() => !!form.title.trim() && isValidDay(form.start) && (!form.until || form.until >= form.start) && !endBeforeStart.value)
+/** Giorni in più dell'evento, per mostrare le anteprime come intervalli. */
+const span = computed(() => (isEvent.value && form.end && form.end > form.start ? daysBetween(form.start, form.end) : 0))
 const preview = computed(() => (valid.value ? previewDates({ start: form.start, repeat: repeat.value, mode: effectiveMode.value }, 5) : []))
+const previewLabel = (d: string) => {
+  const year = (x: string) => (x.slice(0, 4) !== store.today.slice(0, 4) ? ` ${x.slice(0, 4)}` : '')
+  if (!span.value) return `${fmtShortDay(d)}${year(d)}`
+  const e = addDaysTo(d, span.value)
+  return `${fmtShortDay(d)} → ${fmtShortDay(e)}${year(e)}`
+}
 
 function save() {
   if (!valid.value) return
   const draft = {
+    kind: form.kind,
     title: form.title.trim(),
     category: form.category,
     start: form.start,
+    end: isEvent.value && form.end && form.end > form.start ? form.end : null,
     repeat: repeat.value,
     mode: effectiveMode.value,
     remindDays: form.remindDays,
@@ -124,23 +148,45 @@ function remove() {
 </script>
 
 <template>
-  <UiDialog :open="ed.open" :title="ed.commitment ? 'Modifica impegno' : 'Nuovo impegno'" :width="600" @close="store.closeEditor()">
+  <UiDialog :open="ed.open" :title="`${ed.commitment ? 'Modifica' : 'Nuovo'} ${isEvent ? 'evento' : 'task'}`" :width="600" @close="store.closeEditor()">
     <form id="commitment-form" class="cf" @submit.prevent="save">
+      <UiSegmented v-model="form.kind" :options="KINDS" label="Tipo" class="cf__kind" />
+      <p class="muted small cf__kindhint">
+        {{ isEvent ? 'Qualcosa che accade in una data o in più giorni (viaggio, compleanno, conferenza): niente da spuntare.' : 'Qualcosa da fare e segnare come fatto (scadenza, attività ricorrente).' }}
+      </p>
+
       <label class="cf__field">
         <span>Cosa</span>
-        <input v-model="form.title" class="input" placeholder="Es. Revisione auto, cambio filtri condizionatore…" required maxlength="120" autocomplete="off" />
+        <input
+          v-model="form.title"
+          class="input"
+          :placeholder="isEvent ? 'Es. Vacanza in montagna, compleanno di Marta…' : 'Es. Revisione auto, cambio filtri condizionatore…'"
+          required
+          maxlength="120"
+          autocomplete="off"
+        />
       </label>
 
-      <div class="cf__grid">
+      <div class="cf__field">
+        <span>Categoria</span>
+        <UiCombobox v-model="form.category" :options="catOptions" label="Categoria" />
+      </div>
+
+      <div v-if="isEvent" class="cf__grid">
         <div class="cf__field">
-          <span>Categoria</span>
-          <UiCombobox v-model="form.category" :options="catOptions" label="Categoria" />
+          <span>Dal</span>
+          <UiDatePicker v-model="form.start" label="Primo giorno" required :shortcuts="false" />
         </div>
         <div class="cf__field">
-          <span>{{ repeating ? 'Prossima scadenza' : 'Data' }}</span>
-          <UiDatePicker v-model="form.start" label="Prossima scadenza" required :shortcuts="false" />
+          <span>Al <em class="muted">(facoltativo, per eventi su più giorni)</em></span>
+          <UiDatePicker v-model="form.end" label="Ultimo giorno" :shortcuts="false" />
         </div>
       </div>
+      <div v-else class="cf__field cf__half">
+        <span>{{ repeating ? 'Prossima scadenza' : 'Data' }}</span>
+        <UiDatePicker v-model="form.start" label="Prossima scadenza" required :shortcuts="false" />
+      </div>
+      <UiAlert v-if="endBeforeStart" tone="warning">L'ultimo giorno è precedente al primo.</UiAlert>
 
       <fieldset class="cf__set">
         <legend>Si ripete</legend>
@@ -197,7 +243,7 @@ function remove() {
       <div v-if="preview.length" class="cf__preview">
         <p class="muted small">{{ recurrenceLabel(repeat, form.start) }}<template v-if="effectiveMode === 'afterDone'"> · date stimate, si aggiornano quando segni «fatto»</template></p>
         <ul>
-          <li v-for="d in preview" :key="d">{{ fmtShortDay(d) }} {{ d.slice(0, 4) !== store.today.slice(0, 4) ? d.slice(0, 4) : '' }}</li>
+          <li v-for="d in preview" :key="d">{{ previewLabel(d) }}</li>
         </ul>
       </div>
       <UiAlert v-if="form.until && form.until < form.start" tone="warning">La data di fine è precedente alla prima scadenza.</UiAlert>
@@ -216,6 +262,9 @@ function remove() {
 .cf__field em { font-style: normal; }
 .cf__field .input { font-size: 0.95rem; color: var(--text-primary); }
 .cf__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+.cf__kind { align-self: flex-start; }
+.cf__kindhint { margin-top: -6px; }
+.cf__half { max-width: calc(50% - 6px); }
 .cf__set { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .cf__set legend { font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 6px; padding: 0; }
 .cf__chips { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -236,5 +285,8 @@ function remove() {
 .cf__preview ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
 .cf__preview li { padding: 4px 10px; border-radius: 10px; background: var(--surface); font-size: 0.82rem; }
 .cf__del { margin-right: auto; color: var(--negative); }
-@media (max-width: 520px) { .cf__grid, .cf__modes { grid-template-columns: 1fr; } }
+@media (max-width: 520px) {
+  .cf__grid, .cf__modes { grid-template-columns: 1fr; }
+  .cf__half { max-width: none; }
+}
 </style>

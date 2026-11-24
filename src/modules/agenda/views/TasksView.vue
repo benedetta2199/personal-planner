@@ -23,7 +23,7 @@ import {
   type IsoDay,
 } from '@/core/utils/dates'
 import OccurrenceRow from '../components/OccurrenceRow.vue'
-import { HORIZON_LABEL, horizonOf, type Horizon, type Occurrence } from '../domain/recurrence'
+import { HORIZON_LABEL, horizonOf, isEvent, type Horizon, type Occurrence } from '../domain/recurrence'
 import { useAgendaStore } from '../store/agendaStore'
 
 type Period = 'day' | 'week' | 'month' | 'year'
@@ -77,7 +77,8 @@ const label = computed(() => {
 const horizon = ref<Horizon | 'all'>('all')
 const showDone = ref(true)
 
-const all = computed(() => store.occurrences(...range.value))
+/** Solo i task: gli eventi hanno la loro sezione. */
+const all = computed(() => store.occurrences(...range.value).filter((o) => !isEvent(o.commitment)))
 const counts = computed(() => {
   const m: Record<string, number> = {}
   for (const o of all.value) m[horizonOf(o.commitment.repeat)] = (m[horizonOf(o.commitment.repeat)] ?? 0) + 1
@@ -146,8 +147,8 @@ const progress = computed(() => (plannedCount.value ? doneCount.value / plannedC
       </div>
 
       <UiEmpty v-if="!groups.length && !carried.length" title="Nessun task in questo periodo" icon="checkCircle">
-        Gli impegni ricorrenti compaiono qui automaticamente in base alla loro cadenza.
-        <template #actions><UiButton icon="plus" @click="store.openEditor({ date: period === 'day' ? cursor : null })">Nuovo impegno</UiButton></template>
+        I task ricorrenti compaiono qui automaticamente in base alla loro cadenza.
+        <template #actions><UiButton icon="plus" @click="store.openEditor({ date: period === 'day' ? cursor : null })">Nuovo task</UiButton></template>
       </UiEmpty>
     </section>
   </div>

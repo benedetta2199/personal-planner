@@ -3,14 +3,22 @@ import { computed, reactive, ref, watch } from 'vue'
 import UiDialog from '@/core/ui/UiDialog.vue'
 import UiButton from '@/core/ui/UiButton.vue'
 import { WEEKDAY_SHORT } from '@/core/utils/dates'
-import { HABIT_COLORS, HABIT_EMOJIS, type Habit } from './domain'
+import UiSegmented from '@/core/ui/UiSegmented.vue'
+import { HABIT_COLORS, HABIT_EMOJIS, frequencyOf, targetOf, type Habit, type HabitFrequency } from './domain'
 import { useHabitsStore } from './store'
 
 const props = defineProps<{ open: boolean; habit: Habit | null }>()
 const emit = defineEmits<{ close: [] }>()
 const store = useHabitsStore()
 
-const form = reactive({ name: '', emoji: HABIT_EMOJIS[0], color: HABIT_COLORS[0], weekdays: [1, 2, 3, 4, 5, 6, 7] })
+const FREQUENCIES: { value: HabitFrequency; label: string }[] = [
+  { value: 'week', label: 'Settimanale' },
+  { value: 'halfmonth', label: 'Ogni mezzo mese' },
+  { value: 'month', label: 'Mensile' },
+]
+const form = reactive({ name: '', emoji: HABIT_EMOJIS[0], color: HABIT_COLORS[0], weekdays: [1, 2, 3, 4, 5, 6, 7], frequency: 'week' as HabitFrequency, target: 1 })
+/** Massimo di volte per periodo: i giorni del periodo. */
+const maxTarget = computed(() => (form.frequency === 'month' ? 31 : 16))
 const confirmDelete = ref(false)
 
 watch(
@@ -23,6 +31,8 @@ watch(
     form.emoji = h?.emoji ?? HABIT_EMOJIS[store.state.habits.length % HABIT_EMOJIS.length]
     form.color = h?.color ?? HABIT_COLORS[store.state.habits.length % HABIT_COLORS.length]
     form.weekdays = [...(h?.weekdays ?? [1, 2, 3, 4, 5, 6, 7])]
+    form.frequency = h ? frequencyOf(h) : 'week'
+    form.target = h ? targetOf(h) : 1
   },
   { immediate: true },
 )
@@ -36,11 +46,21 @@ const same = (a: number[], b: number[]) => a.length === b.length && a.every((x) 
 function toggleDay(d: number) {
   form.weekdays = form.weekdays.includes(d) ? form.weekdays.filter((x) => x !== d) : [...form.weekdays, d].sort()
 }
-const valid = computed(() => !!form.name.trim() && form.weekdays.length > 0)
+const periodic = computed(() => form.frequency !== 'week')
+const cleanTarget = computed(() => Math.min(maxTarget.value, Math.max(1, Math.floor(Number(form.target) || 1))))
+const valid = computed(() => !!form.name.trim() && (periodic.value || form.weekdays.length > 0))
 
 function save() {
   if (!valid.value) return
-  const d = { name: form.name.trim(), emoji: form.emoji, color: form.color, weekdays: [...form.weekdays] }
+  const d = {
+    name: form.name.trim(),
+    emoji: form.emoji,
+    color: form.color,
+    // I giorni restano salvati: tornando alla cadenza settimanale si ritrovano.
+    weekdays: form.weekdays.length ? [...form.weekdays] : [1, 2, 3, 4, 5, 6, 7],
+    frequency: form.frequency,
+    target: periodic.value ? cleanTarget.value : undefined,
+  }
   if (props.habit) store.update(props.habit.id, d)
   else store.add(d)
   emit('close')
@@ -85,12 +105,24 @@ function archive() {
 
       <fieldset class="hf__set">
         <legend>Quando</legend>
-        <div class="hf__presets">
-          <button v-for="p in PRESETS" :key="p.label" type="button" class="chip" :class="{ on: same(form.weekdays, p.days) }" @click="form.weekdays = [...p.days]">{{ p.label }}</button>
-        </div>
-        <div class="hf__days" role="group" aria-label="Giorni della settimana">
-          <button v-for="(d, i) in WEEKDAY_SHORT" :key="d" type="button" class="day" :class="{ on: form.weekdays.includes(i + 1) }" :aria-pressed="form.weekdays.includes(i + 1)" @click="toggleDay(i + 1)">{{ d }}</button>
-        </div>
+        <UiSegmented v-model="form.frequency" :options="FREQUENCIES" label="Cadenza" class="hf__freq" />
+        <template v-if="!periodic">
+          <div class="hf__presets">
+            <button v-for="p in PRESETS" :key="p.label" type="button" class="chip" :class="{ on: same(form.weekdays, p.days) }" @click="form.weekdays = [...p.days]">{{ p.label }}</button>
+          </div>
+          <div class="hf__days" role="group" aria-label="Giorni della settimana">
+            <button v-for="(d, i) in WEEKDAY_SHORT" :key="d" type="button" class="day" :class="{ on: form.weekdays.includes(i + 1) }" :aria-pressed="form.weekdays.includes(i + 1)" @click="toggleDay(i + 1)">{{ d }}</button>
+          </div>
+        </template>
+        <template v-else>
+          <div class="hf__target">
+            <UiButton size="sm" icon="minus" aria-label="Una volta in meno" :disabled="cleanTarget <= 1" @click="form.target = cleanTarget - 1" />
+            <input v-model.number="form.target" class="input num" type="number" min="1" :max="maxTarget" aria-label="Volte per periodo" />
+            <UiButton size="sm" icon="plus" aria-label="Una volta in più" :disabled="cleanTarget >= maxTarget" @click="form.target = cleanTarget + 1" />
+            <span>{{ cleanTarget === 1 ? 'volta' : 'volte' }} {{ form.frequency === 'month' ? 'al mese' : 'ogni mezzo mese (1–15 e 16–fine mese)' }}</span>
+          </div>
+          <p class="muted small">Segni i giorni in cui la fai, quando vuoi: l'abitudine resta tra quelle di oggi finché non raggiungi l'obiettivo del periodo.</p>
+        </template>
       </fieldset>
     </form>
     <template #footer>
@@ -123,5 +155,8 @@ function archive() {
 .day { width: 46px; height: 36px; border-radius: 12px; border: 1px solid var(--border-strong); background: var(--surface); cursor: pointer; font-size: 0.82rem; }
 .day.on { background: var(--brand); border-color: var(--ink); color: var(--on-brand); font-weight: 600; }
 .hf__del { margin-right: auto; color: var(--negative); }
+.hf__freq { align-self: flex-start; }
+.hf__target { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 0.9rem; }
+.hf__target .input { width: 64px; text-align: center; }
 @media (max-width: 420px) { .hf__emojis { grid-template-columns: repeat(6, 1fr); } }
 </style>

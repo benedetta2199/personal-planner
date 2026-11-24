@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { useOpenFromQuery, usePrimaryAction } from '@/core/ui/primaryAction'
 import UiPageHeader from '@/core/ui/UiPageHeader.vue'
 import UiPeriodNav from '@/core/ui/UiPeriodNav.vue'
 import UiButton from '@/core/ui/UiButton.vue'
@@ -94,6 +95,20 @@ const avgMood = computed(() => {
   return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null
 })
 const writtenDays = computed(() => last30.value.filter((d) => store.get(d)).length)
+
+/** «+» su mobile: apre la pagina di oggi e porta il cursore in fondo al testo. */
+const textEl = ref<HTMLTextAreaElement | null>(null)
+async function writeToday() {
+  if (date.value !== today) open(today)
+  await nextTick()
+  const el = textEl.value
+  if (!el) return
+  el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  el.focus({ preventScroll: true })
+  el.setSelectionRange(el.value.length, el.value.length)
+}
+usePrimaryAction({ label: 'Scrivi la pagina di oggi', run: () => void writeToday() })
+useOpenFromQuery(() => void writeToday())
 </script>
 
 <template>
@@ -130,7 +145,7 @@ const writtenDays = computed(() => last30.value.filter((d) => store.get(d)).leng
           <span>{{ prompt }}</span>
           <UiButton v-if="isSunday" size="sm" variant="ghost" class="jv__review" @click="insertReview">Revisione settimanale</UiButton>
         </div>
-        <textarea v-model="draft.text" class="input jv__text" rows="12" placeholder="Scrivi liberamente…" aria-label="Testo della pagina" />
+        <textarea ref="textEl" v-model="draft.text" class="input jv__text" rows="12" placeholder="Scrivi liberamente…" aria-label="Testo della pagina" />
         <UiButton v-if="!isSunday" size="sm" variant="ghost" class="jv__review-alt" @click="insertReview">Inserisci modello di revisione settimanale</UiButton>
 
         <fieldset class="grat">

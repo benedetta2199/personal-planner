@@ -4,9 +4,11 @@ import { computed, ref } from 'vue'
 import UiPeriodNav from '@/core/ui/UiPeriodNav.vue'
 import UiButton from '@/core/ui/UiButton.vue'
 import UiIcon from '@/core/ui/UiIcon.vue'
-import { addMonthsTo, fmtLongDay, fmtMonthYear, monthGrid, startOfMonth, WEEKDAY_SHORT, type IsoDay } from '@/core/utils/dates'
+import { addDaysTo, addMonthsTo, fmtLongDay, fmtMonthYear, monthGrid, startOfMonth, WEEKDAY_SHORT, type IsoDay } from '@/core/utils/dates'
+import { usePrimaryAction } from '@/core/ui/primaryAction'
 import OccurrenceRow from '../components/OccurrenceRow.vue'
 import { categoryOf, CATEGORIES } from '../domain/catalog'
+import { isEvent, type Occurrence } from '../domain/recurrence'
 import { useAgendaStore } from '../store/agendaStore'
 import { useGoalsStore } from '@/modules/goals/store'
 import { areaOf } from '@/modules/goals/domain'
@@ -19,14 +21,30 @@ const selected = ref<IsoDay>(store.today)
 const weeks = computed(() => monthGrid(month.value))
 const range = computed<[IsoDay, IsoDay]>(() => [weeks.value[0][0], weeks.value[5][6]])
 
+/** Occorrenze per giorno: gli eventi su più giorni compaiono in ognuno dei loro giorni (prima gli eventi). */
 const byDay = computed(() => {
-  const map = new Map<IsoDay, ReturnType<typeof store.occurrences>>()
-  for (const o of store.occurrences(...range.value)) {
-    if (!map.has(o.date)) map.set(o.date, [])
-    map.get(o.date)!.push(o)
+  const map = new Map<IsoDay, Occurrence[]>()
+  const [lo, hi] = range.value
+  for (const o of store.occurrences(lo, hi)) {
+    const last = o.end < hi ? o.end : hi
+    for (let d = o.date < lo ? lo : o.date; d <= last; d = addDaysTo(d, 1)) {
+      if (!map.has(d)) map.set(d, [])
+      map.get(d)!.push(o)
+    }
   }
+  for (const list of map.values()) list.sort((a, b) => Number(isEvent(b.commitment)) - Number(isEvent(a.commitment)))
   return map
 })
+/** Il giorno `d` è il seguito di un evento iniziato prima. */
+const continues = (o: Occurrence, d: IsoDay) => o.date < d
+
+usePrimaryAction(() => ({
+  label: `Aggiungi il ${fmtLongDay(selected.value)}`,
+  menu: [
+    { label: 'Nuovo task', icon: 'checkCircle', run: () => store.openEditor({ date: selected.value, kind: 'task' }) },
+    { label: 'Nuovo evento', icon: 'calendar', run: () => store.openEditor({ date: selected.value, kind: 'event' }) },
+  ],
+}))
 const goalByDay = computed(() => {
   const map = new Map<IsoDay, ReturnType<typeof goals.datedItems>>()
   for (const i of goals.datedItems(...range.value)) {
@@ -83,16 +101,17 @@ const MAX_CHIPS = 3
               <span class="cal__chips">
                 <span
                   v-for="o in (byDay.get(d) ?? []).slice(0, MAX_CHIPS)"
-                  :key="o.commitment.id"
+                  :key="o.commitment.id + o.date"
                   class="cal__chip"
-                  :class="[`st-${o.status}`, { proj: o.projected }]"
+                  :class="[`st-${o.status}`, { proj: o.projected, 'cal__chip--event': isEvent(o.commitment), 'cal__chip--cont': continues(o, d), 'cal__chip--more': o.end > d }]"
                   :style="{ '--c': `var(${categoryOf(o.commitment.category).color})` }"
-                >{{ o.commitment.title }}</span>
+                  :title="o.commitment.title"
+                >{{ continues(o, d) ? '↳ ' : '' }}{{ o.commitment.title }}</span>
                 <span v-for="g in (goalByDay.get(d) ?? []).slice(0, Math.max(0, MAX_CHIPS - (byDay.get(d)?.length ?? 0)))" :key="g.goal.id + g.title" class="cal__chip cal__chip--goal" :class="{ 'st-done': g.done }">🏁 {{ g.title }}</span>
                 <span v-if="(byDay.get(d)?.length ?? 0) + (goalByDay.get(d)?.length ?? 0) > MAX_CHIPS" class="cal__more">+{{ (byDay.get(d)?.length ?? 0) + (goalByDay.get(d)?.length ?? 0) - MAX_CHIPS }}</span>
               </span>
               <span class="cal__dots" aria-hidden="true">
-                <span v-for="o in (byDay.get(d) ?? []).slice(0, 4)" :key="o.commitment.id" :class="`st-${o.status}`" :style="{ background: `var(${categoryOf(o.commitment.category).color})` }" />
+                <span v-for="o in (byDay.get(d) ?? []).slice(0, 4)" :key="o.commitment.id + o.date" :class="[`st-${o.status}`, { evt: isEvent(o.commitment) }]" :style="{ background: `var(${categoryOf(o.commitment.category).color})` }" />
                 <span v-if="goalByDay.get(d)?.length" class="goal" />
               </span>
             </button>
@@ -103,9 +122,12 @@ const MAX_CHIPS = 3
       <section class="panel cal__detail">
         <div class="panel__head">
           <h2 class="panel__title">{{ fmtLongDay(selected) }}</h2>
-          <UiButton size="sm" icon="plus" @click="store.openEditor({ date: selected })">Aggiungi</UiButton>
+          <div class="row">
+            <UiButton size="sm" icon="plus" @click="store.openEditor({ date: selected, kind: 'task' })">Task</UiButton>
+            <UiButton size="sm" icon="calendar" @click="store.openEditor({ date: selected, kind: 'event' })">Evento</UiButton>
+          </div>
         </div>
-        <ul v-if="dayItems.length" class="list"><OccurrenceRow v-for="o in dayItems" :key="o.commitment.id" :occurrence="o" :show-date="false" /></ul>
+        <ul v-if="dayItems.length" class="list"><OccurrenceRow v-for="o in dayItems" :key="o.commitment.id + o.date" :occurrence="o" :show-date="false" /></ul>
         <ul v-if="dayGoals.length" class="cal__goals">
           <li v-for="g in dayGoals" :key="g.goal.id + g.title">
             <UiIcon :name="g.kind === 'goal' ? 'flag' : 'target'" :size="16" />
@@ -147,6 +169,11 @@ const MAX_CHIPS = 3
   background: color-mix(in srgb, var(--c) 18%, var(--surface)); color: var(--text-primary); border-left: 3px solid var(--c);
 }
 .cal__chip.st-done { text-decoration: line-through; opacity: 0.55; }
+/* Eventi: barra piena del colore della categoria; su più giorni la barra «prosegue» tra le caselle. */
+.cal__chip--event { background: var(--c); color: #fff; border-left-color: var(--c); font-weight: 500; }
+.cal__chip--event.st-missed { opacity: 0.5; border-left-style: solid; }
+.cal__chip--event.cal__chip--cont { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -7px; padding-left: 10px; }
+.cal__chip--event.cal__chip--more { border-top-right-radius: 0; border-bottom-right-radius: 0; margin-right: -7px; }
 .cal__chip.st-overdue { background: var(--critical-soft); border-left-color: var(--negative); color: var(--negative); font-weight: 500; }
 .cal__chip.st-missed, .cal__chip.proj { opacity: 0.55; border-left-style: dashed; }
 .cal__chip--goal { --c: var(--orange); }
@@ -154,6 +181,7 @@ const MAX_CHIPS = 3
 .cal__dots { display: none; gap: 3px; flex-wrap: wrap; }
 .cal__dots span { width: 6px; height: 6px; border-radius: 50%; }
 .cal__dots span.st-done { opacity: 0.4; }
+.cal__dots span.evt { width: 12px; border-radius: 3px; }
 .cal__dots span.st-overdue { outline: 1.5px solid var(--negative); outline-offset: 1px; }
 .cal__dots .goal { background: var(--orange); }
 .cal__detail { position: sticky; top: 16px; }

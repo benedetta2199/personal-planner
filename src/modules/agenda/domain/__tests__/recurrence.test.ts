@@ -126,6 +126,53 @@ describe('etichette e anteprima', () => {
   })
 })
 
+describe('ogni mezzo mese', () => {
+  it('il 1 e il 16 di ogni mese', () => {
+    const c = make({ start: '2026-01-01', repeat: { unit: 'halfmonth', every: 1 } })
+    expect(fixedDates(c, '2026-01-01', '2026-02-28')).toEqual(['2026-01-01', '2026-01-16', '2026-02-01', '2026-02-16'])
+  })
+
+  it('il 15 e il 30, con febbraio accorciato; partenza dalla seconda metà', () => {
+    const c = make({ start: '2026-01-30', repeat: { unit: 'halfmonth', every: 1 } })
+    expect(fixedDates(c, '2026-01-01', '2026-03-20')).toEqual(['2026-01-30', '2026-02-15', '2026-02-28', '2026-03-15'])
+  })
+
+  it('ogni 3 mezzi mesi e finestra a metà serie', () => {
+    const c = make({ start: '2026-01-05', repeat: { unit: 'halfmonth', every: 3 } })
+    expect(fixedDates(c, '2026-02-01', '2026-04-30')).toEqual(['2026-02-20', '2026-04-05'])
+  })
+
+  it('etichetta, anteprima, dal completamento e .ics', () => {
+    expect(recurrenceLabel({ unit: 'halfmonth', every: 1 }, '2026-01-01')).toBe('Ogni mezzo mese · il 1 e il 16')
+    expect(previewDates({ start: '2026-11-20', repeat: { unit: 'halfmonth', every: 1 }, mode: 'fixed' }, 3)).toEqual(['2026-11-20', '2026-12-05', '2026-12-20'])
+    const c = make({ start: '2026-11-01', repeat: { unit: 'halfmonth', every: 1 }, mode: 'afterDone' })
+    expect(nextDue(c, [{ commitmentId: 'c1', due: '2026-11-01', doneOn: '2026-11-03' }], '2026-11-05')).toBe('2026-11-18')
+    expect(rrule(make({ start: '2026-01-01', repeat: { unit: 'halfmonth', every: 1 } }))).toBe('FREQ=MONTHLY;BYMONTHDAY=1,16')
+    expect(rrule(make({ start: '2026-01-01', repeat: { unit: 'halfmonth', every: 4 } }))).toBe('FREQ=MONTHLY;INTERVAL=2')
+  })
+})
+
+describe('eventi', () => {
+  const ev = (over: Partial<Commitment>) => make({ kind: 'event', repeat: { unit: 'none', every: 1 }, ...over })
+
+  it('un evento su più giorni compare anche se iniziato prima del periodo, e non va mai in ritardo', () => {
+    const c = ev({ start: '2026-11-20', end: '2026-11-25' })
+    const occ = occurrencesOf(c, [], '2026-11-23', '2026-11-23', '2026-11-23')
+    expect(occ.map((o) => [o.date, o.end, o.status])).toEqual([['2026-11-20', '2026-11-25', 'today']])
+    expect(occurrencesOf(c, [], '2026-11-01', '2026-11-30', '2026-12-01').map((o) => o.status)).toEqual(['missed'])
+    expect(nextDue(c, [], '2026-11-24')).toBe('2026-11-20')
+    expect(nextDue(c, [], '2026-11-26')).toBeNull()
+  })
+
+  it('evento ricorrente con durata ed esportazione', () => {
+    const c = ev({ start: '2026-07-01', end: '2026-07-03', repeat: { unit: 'year', every: 1 } })
+    expect(occurrencesOf(c, [], '2027-07-02', '2027-07-02', '2026-11-23').map((o) => [o.date, o.end])).toEqual([['2027-07-01', '2027-07-03']])
+    expect(nextDue(c, [], '2026-11-23')).toBe('2027-07-01')
+    const ics = buildIcs([c], [], '2026-11-23', new Date('2026-11-23T10:00:00Z'))
+    expect(ics).toContain('DTEND;VALUE=DATE:20260704')
+  })
+})
+
 describe('esportazione .ics', () => {
   it('regola di ricorrenza', () => {
     expect(rrule(make({ repeat: { unit: 'year', every: 2 } }))).toBe('FREQ=YEARLY;INTERVAL=2')
