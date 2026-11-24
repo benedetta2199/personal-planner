@@ -1,9 +1,10 @@
 import { timingSafeEqual } from 'node:crypto'
 import { appsScriptFromEnv, type AppsScriptClient } from './appsScript.js'
-import { googleId, SheetsError } from './googleSheets.js'
+import { googleId, SheetsError, type FetchedSheets } from './googleSheets.js'
+import { importFinanceSheets } from '../src/modules/finance/domain/importer.js'
 import { normalizeKey } from '../src/modules/finance/domain/parsers.js'
-import { SHEET_SCHEMAS } from '../src/modules/finance/domain/schema.js'
-import type { ExpenseType, Operation, SheetName } from '../src/modules/finance/domain/types.js'
+import { ALL_SHEETS, SHEET_SCHEMAS } from '../src/modules/finance/domain/schema.js'
+import type { ExpenseType, Operation, RawSheets, SheetName } from '../src/modules/finance/domain/types.js'
 
 /**
  * Scrittura sul Google Sheet del bilancio (tramite il ponte Apps Script):
@@ -12,6 +13,16 @@ import type { ExpenseType, Operation, SheetName } from '../src/modules/finance/d
  *
  *   POST /api/finance/ledger  { action: 'push', ops }        inserisce o aggiorna le voci
  *                             { action: 'delete', ids }      elimina le righe con quegli ID
+ *                             { action: 'row.replace', tab, row, expectedId, op }
+ *                                 sostituisce una riga scritta a mano nel foglio (senza ID dell'app):
+ *                                 da quel momento la riga ha l'ID «m-…» ed è gestita dall'app
+ *                             { action: 'row.delete', tab, row, expectedId }
+ *                                 elimina una riga scritta a mano nel foglio
+ *
+ * Le righe senza ID dell'app sono individuate da scheda + numero di riga; prima di toccarle
+ * il server rilegge il foglio e controlla che lì ci sia ancora la stessa voce (stesso ID
+ * calcolato dall'importer), così una riga spostata o modificata nel frattempo non viene mai
+ * sovrascritta o eliminata per errore.
  *                             { action: 'config.get' }       legge la configurazione salvata
  *                             { action: 'config.put', config, updatedAt }
  */
@@ -155,6 +166,7 @@ class LedgerSheet {
   constructor(
     private readonly bridge: AppsScriptClient,
     private readonly spreadsheetId: string | undefined,
+    private readonly baseCurrency?: string,
   ) {}
 
   private get target() {
@@ -229,6 +241,42 @@ class LedgerSheet {
     return { inserted, updated }
   }
 
+  /**
+   * Controlla che alla riga `row` della scheda ci sia ancora la voce che l'app ha letto.
+   * Il foglio viene riletto e importato come nella sincronizzazione, così l'ID coincide.
+   */
+  private async locate(name: SheetName, row: number, expectedId: string): Promise<void> {
+    const { values } = await this.bridge.call<FetchedSheets>('read', { ...this.target, sheets: ALL_SHEETS })
+    const { dataset } = importFinanceSheets(values as RawSheets, { baseCurrency: this.baseCurrency })
+    const op = dataset.operations.find((o) => o.source.sheet === name && o.source.row === row)
+    if (!op || op.id !== expectedId) {
+      throw new SheetsError('row_changed', `La riga ${row} della scheda «${name}» è cambiata dall'ultima sincronizzazione: aggiorna i dati e riprova.`, 409)
+    }
+  }
+
+  /** Sostituisce una riga del foglio con la voce `op` (che ha un ID dell'app). */
+  async replaceRow(name: SheetName, row: number, expectedId: string, op: Operation) {
+    await this.locate(name, row, expectedId)
+    const source = await this.tab(name)
+    const targetName = TAB_OF[op.kind]
+    if (targetName === name) {
+      const values = buildOpRow(source.headers.length, source.columns, op, source.rows[row - 1])
+      await this.bridge.call('range.put', { ...this.target, tab: name, row, col: 1, values: [values] })
+      this.cache.clear()
+      return { inserted: 0, updated: 1 }
+    }
+    // Tipo cambiato (es. da uscita a trasferimento): la voce passa all'altra scheda.
+    const target = await this.tab(targetName)
+    await this.bridge.call('rows.append', { ...this.target, tab: targetName, values: [buildOpRow(target.headers.length, target.columns, op)] })
+    await this.deleteRows(new Map([[name, [row]]]))
+    return { inserted: 1, updated: 0 }
+  }
+
+  async deleteRow(name: SheetName, row: number, expectedId: string) {
+    await this.locate(name, row, expectedId)
+    return this.deleteRows(new Map([[name, [row]]]))
+  }
+
   async remove(ids: string[]) {
     const deletes = new Map<SheetName, number[]>()
     for (const name of OP_TABS) {
@@ -290,7 +338,7 @@ export async function handleLedger(req: LedgerRequest): Promise<{ status: number
   try {
     const bridge = appsScriptFromEnv(req.env, req.fetchImpl)
     if (!bridge) return fail(503, 'bridge_required', 'Per salvare sul foglio Google configura il ponte Apps Script (APPS_SCRIPT_URL e APPS_SCRIPT_SECRET).')
-    const sheet = new LedgerSheet(bridge, googleId(req.env.GOOGLE_SHEET_ID) || undefined)
+    const sheet = new LedgerSheet(bridge, googleId(req.env.GOOGLE_SHEET_ID) || undefined, req.env.BASE_CURRENCY)
 
     switch (body.action) {
       case 'push': {
@@ -307,6 +355,21 @@ export async function handleLedger(req: LedgerRequest): Promise<{ status: number
         const ids = (Array.isArray(body.ids) ? body.ids : []).map((x) => str(x, 64)).filter((x) => /^m-[\w-]{4,40}$/.test(x))
         await sheet.checkScript()
         return { status: 200, body: { ok: true, inserted: 0, updated: 0, deleted: await sheet.remove(ids) } }
+      }
+      case 'row.replace':
+      case 'row.delete': {
+        const tab = OP_TABS.find((t) => t === body.tab)
+        const row = typeof body.row === 'number' && Number.isInteger(body.row) && body.row > 1 ? body.row : 0
+        const expectedId = str(body.expectedId, 120)
+        if (!tab || !row || !expectedId) return fail(400, 'invalid_row', 'Riga del foglio non valida.')
+        await sheet.checkScript()
+        if (body.action === 'row.delete') {
+          return { status: 200, body: { ok: true, inserted: 0, updated: 0, deleted: await sheet.deleteRow(tab, row, expectedId) } }
+        }
+        const op = validateOp(body.op)
+        if (!op) return fail(400, 'invalid_op', 'Voce non valida.')
+        const r = await sheet.replaceRow(tab, row, expectedId, op)
+        return { status: 200, body: { ok: true, ...r, deleted: 0 } }
       }
       case 'config.get': {
         await sheet.checkScript()

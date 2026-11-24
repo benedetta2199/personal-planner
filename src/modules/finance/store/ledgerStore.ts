@@ -51,6 +51,19 @@ export type EntryDraft =
   | { kind: 'income'; date: string; account: string; category: string; subcategory: string; description: string; amount: number; currency: string }
   | { kind: 'transfer'; date: string; account: string; toAccount: string; category: string; subcategory: string; description: string; amount: number; currency: string }
 
+/** Valori iniziali di una nuova voce (es. da una riga dell'estratto conto). */
+export interface EntryPrefill {
+  kind?: 'expense' | 'income' | 'transfer'
+  expenseType?: ExpenseType
+  date?: string
+  account?: string
+  toAccount?: string
+  category?: string
+  subcategory?: string
+  description?: string
+  amount?: number
+}
+
 export class LedgerError extends Error {}
 
 /**
@@ -122,6 +135,16 @@ export const useLedgerStore = defineStore('finance-ledger', () => {
     if (s && !cat.subcategories.some((x) => norm(x.name) === norm(s) || x.aliases.some((a) => norm(a) === norm(s)))) {
       cat.subcategories.push({ id: uid(), name: s, aliases: [] })
     }
+  }
+
+  /**
+   * Voce pronta da scrivere sul foglio al posto di una riga scritta a mano (vedi
+   * `financeStore.editOperation`): ottiene un ID dell'app e registra le categorie nuove.
+   */
+  function adoptDraft(d: EntryDraft): Operation {
+    validate(d)
+    if (d.kind !== 'transfer') ensureCategory(d.kind, d.category, d.subcategory, d.kind === 'expense' ? d.expenseType : undefined)
+    return toOperation(d, `m-${uid()}`, 0)
   }
 
   function addEntry(d: EntryDraft, id = `m-${uid()}`): Operation {
@@ -545,7 +568,7 @@ export const useLedgerStore = defineStore('finance-ledger', () => {
 
   return {
     state, saveFailed,
-    addEntry, updateEntry, removeEntry, isManual,
+    addEntry, updateEntry, removeEntry, isManual, adoptDraft,
     pendingCount, pendingChanges, markSent, pruneSaved, cloudConfig, applyCloudConfig, mergeCloudConfig, markConfigSynced,
     addPlan, updatePlan, setPlanActive, removePlan, runPlans,
     addAccount, updateAccount, removeAccount, moveAccount, setDefaultAccount, defaultAccountName, nextColor,

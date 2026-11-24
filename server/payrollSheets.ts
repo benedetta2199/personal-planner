@@ -53,6 +53,42 @@ export interface PayrollPdf {
   data: Uint8Array
 }
 
+/** Riga già presente nel foglio per lo stesso cedolino. */
+export interface PayrollExistingRow {
+  /** Numero di riga nel foglio (1-based, intestazione = 1). */
+  row: number
+  /** period: stesso anno/mese/tipo; pdf: stesso PDF (impronta) salvato con un altro periodo. */
+  match: 'period' | 'pdf'
+  mese: string
+  anno: number | null
+  tipo: string
+  /** Netto in busta già registrato, in euro. */
+  netPay: number | null
+  savedAt: string | null
+}
+
+export interface PayrollCheckOutcome {
+  exists: boolean
+  existing: PayrollExistingRow | null
+  sheetUrl: string
+}
+
+/** Salvataggio rifiutato perché la riga esiste già e non è stata chiesta la sovrascrittura. */
+export class PayrollDuplicateError extends PayrollSheetError {
+  constructor(
+    public readonly existing: PayrollExistingRow,
+    public readonly sheetUrl: string,
+  ) {
+    super(
+      'already_saved',
+      existing.match === 'period'
+        ? `Il cedolino ${existing.mese} ${existing.anno ?? ''} (${existing.tipo}) è già nel foglio alla riga ${existing.row}.`
+        : `Questo PDF è già stato salvato nel foglio alla riga ${existing.row} (${existing.mese} ${existing.anno ?? ''}).`,
+      409,
+    )
+  }
+}
+
 export interface PayrollSaveOutcome {
   action: 'inserted' | 'updated'
   sheetUrl: string
@@ -204,6 +240,55 @@ function matchesRecord(row: unknown[], columns: Map<string, number>, record: Pay
   return true
 }
 
+function headerColumns(rows: unknown[][]): Map<string, number> {
+  const headers = rows[0]?.map((h) => (h === null || h === undefined ? '' : String(h))) ?? []
+  return new Map(headers.map((h, i) => [normalizeKey(h), i] as const))
+}
+
+/**
+ * Cerca nel foglio una riga dello stesso cedolino: prima per anno + mese + tipo,
+ * poi per impronta del PDF (stesso file salvato con un periodo diverso).
+ * Restituisce l'indice nell'array `rows` (0 = intestazione) o -1.
+ */
+export function findExistingRowIndex(rows: unknown[][], record: PayrollRecord): { index: number; match: 'period' | 'pdf' } {
+  const columns = headerColumns(rows)
+  if (!columns.has('anno') || !columns.has('mese')) return { index: -1, match: 'period' }
+  const byPeriod = rows.findIndex((row, i) => i > 0 && matchesRecord(row, columns, record))
+  if (byPeriod >= 1) return { index: byPeriod, match: 'period' }
+  const hashColumn = columns.get('improntapdf')
+  if (hashColumn !== undefined) {
+    const byHash = rows.findIndex((row, i) => i > 0 && String(row[hashColumn] ?? '').toLowerCase() === record.sourceHash.toLowerCase())
+    if (byHash >= 1) return { index: byHash, match: 'pdf' }
+  }
+  return { index: -1, match: 'period' }
+}
+
+export function describeExistingRow(rows: unknown[][], index: number, match: 'period' | 'pdf'): PayrollExistingRow {
+  const columns = headerColumns(rows)
+  const row = rows[index] ?? []
+  const cell = (key: string) => {
+    const i = columns.get(key)
+    return i === undefined ? undefined : row[i]
+  }
+  const text = (value: unknown) => (value === undefined || value === null ? '' : String(value))
+  const number = (value: unknown) => {
+    if (value === undefined || value === null || value === '') return null
+    const raw = String(value).trim()
+    const parsed = typeof value === 'number' ? value : Number(raw.includes(',') ? raw.replace(/\./g, '').replace(',', '.') : raw)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  const month = cell('mese')
+  return {
+    row: index + 1,
+    match,
+    mese: typeof month === 'number' && month >= 1 && month <= 12 ? MONTH_NAMES[month - 1] : text(month),
+    anno: number(cell('anno')),
+    tipo: text(cell('tipobusta')) || 'Normale',
+    netPay: number(cell('nettobusta') ?? cell('nettoinbusta')),
+    savedAt: text(cell('datasalvataggio')) || null,
+  }
+}
+
 /** Costruisce la riga: parte da quella esistente e sovrascrive solo le colonne note. */
 export function buildRow(headers: unknown[], existing: unknown[] | null, ctx: RowContext): Cell[] {
   const row: Cell[] = headers.map((_, i) => {
@@ -327,8 +412,14 @@ function storageFromEnv(env: Record<string, string | undefined>): PayrollStorage
 
 // ---- Logica dell'archivio ---------------------------------------------------------
 
-async function upsertRow(storage: PayrollStorage, spreadsheetId: string, record: PayrollRecord, pdfUrl: string | null): Promise<'inserted' | 'updated'> {
-  const { tab, rows } = await storage.readFirstTab(spreadsheetId)
+async function upsertRow(
+  storage: PayrollStorage,
+  spreadsheetId: string,
+  record: PayrollRecord,
+  pdfUrl: string | null,
+  table: { tab: string; rows: unknown[][] },
+): Promise<'inserted' | 'updated'> {
+  const { tab, rows } = table
   let headers = rows[0]?.map((h) => (h === null || h === undefined ? '' : String(h))) ?? []
 
   if (!headers.some((h) => h.trim())) {
@@ -348,9 +439,8 @@ async function upsertRow(storage: PayrollStorage, spreadsheetId: string, record:
     }
   }
 
-  const columns = new Map(headers.map((h, i) => [normalizeKey(h), i] as const))
   const ctx: RowContext = { record, pdfUrl, savedAt: new Date().toISOString() }
-  const index = rows.findIndex((row, i) => i > 0 && matchesRecord(row, columns, record))
+  const { index } = findExistingRowIndex([headers, ...rows.slice(1)], record)
   if (index >= 1) {
     await storage.put(spreadsheetId, tab, index + 1, 1, [buildRow(headers, rows[index], ctx)])
     return 'updated'
@@ -366,14 +456,48 @@ async function storePdf(storage: PayrollStorage, yearFolderId: string, pdf: Payr
   return { status: 'uploaded', file: await storage.uploadPdf(folder.id, pdf, sourceHash) }
 }
 
-export async function savePayroll(env: Record<string, string | undefined>, record: PayrollRecord, pdf: PayrollPdf | null): Promise<PayrollSaveOutcome> {
+interface PayrollTarget {
+  storage: PayrollStorage
+  yearFolder: StoredFile
+  sheet: StoredFile
+}
+
+async function openPayrollSheet(env: Record<string, string | undefined>, record: PayrollRecord): Promise<PayrollTarget> {
   const rootId = googleId(env.GOOGLE_DRIVE_ROOT_FOLDER_ID)
   if (!rootId) throw new PayrollSheetError('not_configured', 'Configura GOOGLE_DRIVE_ROOT_FOLDER_ID: la cartella Drive che contiene le cartelle per anno (2026, 2027…).', 503)
   if (!record.year) throw new PayrollSheetError('invalid_record', 'Anno del cedolino mancante.', 400)
-
   const storage = storageFromEnv(env)
   const yearFolder = await storage.ensure(rootId, String(record.year), 'folder')
   const sheet = await storage.ensure(yearFolder.id, sheetFileName(record.year), 'spreadsheet')
+  return { storage, yearFolder, sheet }
+}
+
+/** Il cedolino è già nel foglio? (stesso anno/mese/tipo o stesso PDF). Non scrive nulla nel foglio. */
+export async function checkPayroll(env: Record<string, string | undefined>, record: PayrollRecord): Promise<PayrollCheckOutcome> {
+  const { storage, sheet } = await openPayrollSheet(env, record)
+  const { rows } = await storage.readFirstTab(sheet.id)
+  const { index, match } = findExistingRowIndex(rows, record)
+  const existing = index >= 1 ? describeExistingRow(rows, index, match) : null
+  return { exists: Boolean(existing), existing, sheetUrl: sheet.url }
+}
+
+export interface SavePayrollOptions {
+  /** true = aggiorna la riga se il cedolino è già presente; altrimenti il salvataggio viene rifiutato. */
+  overwrite?: boolean
+}
+
+export async function savePayroll(
+  env: Record<string, string | undefined>,
+  record: PayrollRecord,
+  pdf: PayrollPdf | null,
+  options: SavePayrollOptions = {},
+): Promise<PayrollSaveOutcome> {
+  const { storage, yearFolder, sheet } = await openPayrollSheet(env, record)
+
+  // Controllo duplicati prima di caricare il PDF, così un rifiuto non lascia file orfani.
+  const table = await storage.readFirstTab(sheet.id)
+  const { index, match } = findExistingRowIndex(table.rows, record)
+  if (index >= 1 && !options.overwrite) throw new PayrollDuplicateError(describeExistingRow(table.rows, index, match), sheet.url)
 
   let pdfStatus: PayrollSaveOutcome['pdf'] = 'skipped'
   let pdfUrl: string | null = null
@@ -383,7 +507,7 @@ export async function savePayroll(env: Record<string, string | undefined>, recor
     pdfUrl = stored.file.url
   }
 
-  const action = await upsertRow(storage, sheet.id, record, pdfUrl)
+  const action = await upsertRow(storage, sheet.id, record, pdfUrl, table)
   return { action, sheetUrl: sheet.url, pdf: pdfStatus, pdfUrl }
 }
 

@@ -11,7 +11,7 @@ vi.mock('google-auth-library', () => {
   return { JWT: Client, OAuth2Client: Client }
 })
 
-import { buildRow, decodePayrollPdf, savePayroll } from './payrollSheets.js'
+import { buildRow, checkPayroll, decodePayrollPdf, savePayroll } from './payrollSheets.js'
 
 const env = {
   GOOGLE_DRIVE_ROOT_FOLDER_ID: 'root-folder',
@@ -103,14 +103,40 @@ describe('payroll archive on Google Drive', () => {
     expect(row[headerValues.indexOf('Contingenza')]).toBe(524.22)
   })
 
-  it('updates the matching month in an existing sheet, adding the missing dataset columns', async () => {
+  it('refuses to save a payslip already in the sheet, before uploading the PDF', async () => {
+    mockGoogle(fetchMock, {
+      existing: true,
+      values: [['Mese', 'Anno', 'Tipo_Busta', 'Netto_Busta', 'Data_Salvataggio'], ['Marzo', 2026, 'Normale', 852.52, '2026-04-11T10:00:00Z']],
+    })
+
+    await expect(savePayroll(env, record, { fileName: '03-26.pdf', data: new Uint8Array(pdfBytes) })).rejects.toMatchObject({
+      code: 'already_saved',
+      status: 409,
+      existing: { row: 2, match: 'period', mese: 'Marzo', anno: 2026, tipo: 'Normale', netPay: 852.52, savedAt: '2026-04-11T10:00:00Z' },
+    })
+    const calls = fetchMock.mock.calls as Call[]
+    expect(calls.some(([u]) => String(u).startsWith('https://www.googleapis.com/upload/'))).toBe(false)
+    expect(calls.some(([, i]) => i?.method === 'PUT' || i?.method === 'POST' && String(i.body).includes('values'))).toBe(false)
+  })
+
+  it('reports an existing row by period, or by PDF fingerprint saved under another month', async () => {
+    mockGoogle(fetchMock, {
+      existing: true,
+      values: [['Mese', 'Anno', 'Tipo_Busta', 'Netto_Busta', 'Impronta_PDF'], ['Febbraio', 2026, 'Normale', 800, pdfHash]],
+    })
+
+    await expect(checkPayroll(env, record)).resolves.toMatchObject({ exists: true, existing: { row: 2, match: 'pdf', mese: 'Febbraio' } })
+    await expect(checkPayroll(env, { ...record, sourceHash: 'f'.repeat(64) })).resolves.toMatchObject({ exists: false, existing: null })
+  })
+
+  it('updates the matching month in an existing sheet when overwrite is requested, adding the missing dataset columns', async () => {
     const headers = ['Mese', 'Anno', 'Tipo_Busta', 'Contingenza', 'Netto_Busta', 'Link_PDF', 'Impronta_PDF', 'Data_Salvataggio']
     mockGoogle(fetchMock, {
       existing: true,
       values: [headers, ['Febbraio', 2026, 'Normale', 524.22, 1600], ['Marzo', 2026, 'Normale', 524.22, 800]],
     })
 
-    const outcome = await savePayroll(env, record, null)
+    const outcome = await savePayroll(env, record, null, { overwrite: true })
 
     expect(outcome).toMatchObject({ action: 'updated', pdf: 'skipped' })
     const calls = fetchMock.mock.calls as Call[]

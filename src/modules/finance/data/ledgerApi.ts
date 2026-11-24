@@ -39,5 +39,13 @@ const wire = (op: Operation) => {
 
 export const pushEntries = (ops: Operation[], token: string) => call<{ inserted: number; updated: number }>({ action: 'push', ops: ops.map(wire) }, token)
 export const deleteEntries = (ids: string[], token: string) => call<{ deleted: number }>({ action: 'delete', ids }, token)
+/** Riga scritta a mano nel foglio (senza ID dell'app), individuata da scheda + riga + ID letto dall'app. */
+export interface SheetRowRef {
+  tab: 'Entrate' | 'Uscite' | 'Transazioni'
+  row: number
+  expectedId: string
+}
+export const replaceSheetRow = (ref: SheetRowRef, op: Operation, token: string) => call<{ inserted: number; updated: number }>({ action: 'row.replace', ...ref, op: wire(op) }, token)
+export const deleteSheetRow = (ref: SheetRowRef, token: string) => call<{ deleted: number }>({ action: 'row.delete', ...ref }, token)
 export const getRemoteConfig = (token: string) => call<{ config: unknown; updatedAt: string | null }>({ action: 'config.get' }, token)
 export const putRemoteConfig = (config: unknown, updatedAt: string, token: string) => call<{ saved: true }>({ action: 'config.put', config, updatedAt }, token)

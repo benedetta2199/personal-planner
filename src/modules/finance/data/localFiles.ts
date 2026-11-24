@@ -2,18 +2,12 @@ import Papa from 'papaparse'
 import { strFromU8, unzipSync } from 'fflate'
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
-import { parseLedgerRows, parseStatementRows, type FileIssue, type StatementProvider } from '../domain/reconciliation'
+import { detectProvider, parseStatementRows, type FileIssue, type StatementProvider, type StatementRow } from '../domain/reconciliation'
 import { extractPayrollRecord, type PayrollExtraction } from '../domain/payroll'
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024
-
-export interface LocalFileResult<T> {
-  fileName: string
-  records: T[]
-  issues: FileIssue[]
-}
 
 function assertFileSize(file: File) {
   if (file.size > MAX_FILE_SIZE) throw new Error('Il file supera il limite locale di 20 MB.')
@@ -106,7 +100,9 @@ function parseXlsx(bytes: Uint8Array): unknown[][] {
   const workbookXml = getXml('xl/workbook.xml')
   const relsXml = getXml('xl/_rels/workbook.xml.rels')
   const firstSheet = elements(workbookXml, 'sheet')[0]
-  const relationId = firstSheet ? attributes(firstSheet[1]).id ?? attributes(firstSheet[1])['r:id'] : undefined
+  // `<sheet …/>` è di solito autochiuso: gli attributi sono nel terzo gruppo della regex.
+  const sheetAttrs = firstSheet ? attributes(firstSheet[1] ?? firstSheet[3] ?? '') : {}
+  const relationId = sheetAttrs.id ?? sheetAttrs['r:id']
   const relationship = elements(relsXml, 'Relationship').find((match) => attributes(match[1] ?? match[3] ?? '').Id === relationId)
   const target = relationship ? attributes(relationship[1] ?? relationship[3] ?? '').Target : undefined
   if (!target) throw new Error('Non è stato possibile individuare il primo foglio del file XLSX.')
@@ -131,40 +127,27 @@ async function readTable(file: File): Promise<{ rows: unknown[][]; issues: FileI
   throw new Error('Formato non supportato. Carica un CSV o un file XLSX.')
 }
 
-function detectProvider(rows: unknown[][], fileName: string): StatementProvider | null {
-  const header = rows.find((row) => row.some((cell) => String(cell ?? '').trim()))
-  if (!header) return null
-  const normalized = new Set(header.map((cell) => String(cell ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '')))
-  if (normalized.has('transactionid') && normalized.has('accounttype')) return 'trade-republic'
-  if (normalized.has('datadicompletamento') && normalized.has('prodotto')) return 'revolut'
-  if (normalized.has('entrate') && normalized.has('uscite') && normalized.has('saldo')) return 'revolut-savings'
-  if (normalized.has('disponibilitadopolatransazione') || normalized.has('stato') && normalized.has('nome') && normalized.has('importo')) return 'satispay'
-  const name = fileName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-  if (name.includes('revolut') && normalized.has('data') && normalized.has('descrizione') && normalized.has('entrate')) return 'revolut-savings'
-  return null
+export interface StatementFile {
+  fileName: string
+  provider: StatementProvider | null
+  records: StatementRow[]
+  issues: FileIssue[]
 }
 
-export async function readLedgerFile(file: File): Promise<LocalFileResult<ReturnType<typeof parseLedgerRows>['records'][number]>> {
-  const { rows, issues: parseIssues } = await readTable(file)
-  const parsed = parseLedgerRows(rows)
-  return { fileName: file.name, records: parsed.records, issues: [...parseIssues, ...parsed.issues] }
-}
-
-export async function readStatementFile(
-  file: File,
-  accountOverride?: string,
-): Promise<LocalFileResult<ReturnType<typeof parseStatementRows>['records'][number]>> {
+/** Legge un estratto conto (CSV/XLSX) riconoscendo l'app di provenienza dalle intestazioni. */
+export async function readStatementFile(file: File): Promise<StatementFile> {
   const { rows, issues: parseIssues } = await readTable(file)
   const provider = detectProvider(rows, file.name)
   if (!provider) {
     return {
       fileName: file.name,
+      provider,
       records: [],
       issues: [...parseIssues, { severity: 'error', code: 'unsupported_format', message: `Formato di estratto non riconosciuto: ${file.name}.` }],
     }
   }
-  const parsed = parseStatementRows(rows, provider, file.name, accountOverride)
-  return { fileName: file.name, records: parsed.records, issues: [...parseIssues, ...parsed.issues] }
+  const parsed = parseStatementRows(rows, provider, file.name)
+  return { fileName: file.name, provider, records: parsed.records, issues: [...parseIssues, ...parsed.issues] }
 }
 
 async function sha256(file: File): Promise<string> {

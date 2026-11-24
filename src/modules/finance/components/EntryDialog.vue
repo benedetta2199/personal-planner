@@ -8,11 +8,18 @@ import UiDatePicker from '@/core/ui/UiDatePicker.vue'
 import { formatDate, formatMoney, todayIso } from '@/core/utils/format'
 import { computeAccountBalances, flowTypeOf, norm, subKey, type ExpenseType, type Operation } from '../domain'
 import { useFinanceStore } from '../store/financeStore'
-import { LedgerError, useLedgerStore, type EntryDraft } from '../store/ledgerStore'
+import { LedgerError, useLedgerStore, type EntryDraft, type EntryPrefill } from '../store/ledgerStore'
 import { CARD_THEME_META, FLOW_META, plainName, subcategoryColor } from '../presentation'
 import { categoryIcon } from '../categoryIcons'
 
-const props = defineProps<{ open: boolean; operation?: Operation | null; defaultDate?: string }>()
+const props = defineProps<{
+  open: boolean
+  operation?: Operation | null
+  defaultDate?: string
+  prefill?: EntryPrefill | null
+  /** Consente di modificare ed eliminare anche le righe scritte a mano nel foglio Google. */
+  editSheetRows?: boolean
+}>()
 const emit = defineEmits<{ close: []; saved: [op: Operation | null]; needsInstrument: [category: string, subcategory: string] }>()
 
 const store = useFinanceStore()
@@ -32,7 +39,9 @@ const form = reactive({
 })
 const error = ref<string | null>(null)
 
-const editing = computed(() => !!props.operation && ledger.isManual(props.operation.id))
+const sheetRow = computed(() => !!props.operation && !ledger.isManual(props.operation.id) && !!props.editSheetRows && store.canEdit(props.operation))
+const editing = computed(() => !!props.operation && (ledger.isManual(props.operation.id) || sheetRow.value))
+const busy = ref(false)
 const readOnly = computed(() => !!props.operation && !editing.value)
 const title = computed(() => (readOnly.value ? 'Dettaglio movimento' : editing.value ? 'Modifica voce' : 'Nuova voce di bilancio'))
 
@@ -126,6 +135,18 @@ function reset() {
     form.subcategory = ''
     form.description = ''
     form.amount = ''
+    const p = props.prefill
+    if (p) {
+      if (p.kind) form.kind = p.kind
+      if (p.expenseType) form.expenseType = p.expenseType
+      if (p.date) form.date = p.date
+      if (p.account) form.account = p.account
+      if (p.toAccount) form.toAccount = p.toAccount
+      if (p.category) form.category = p.category
+      if (p.subcategory) form.subcategory = p.subcategory
+      if (p.description) form.description = p.description
+      if (p.amount) form.amount = (p.amount / 100).toFixed(2).replace('.', ',')
+    }
   }
 }
 watch(() => props.open, (o) => o && reset(), { immediate: true })
@@ -136,7 +157,7 @@ watch(
   (c, prev) => {
     if (!props.open || c === prev || form.kind !== 'expense') return
     const t = ledger.findCategory('expense', c)?.defaultExpenseType
-    if (t && !editing.value) form.expenseType = t
+    if (t && !editing.value && !props.prefill?.expenseType) form.expenseType = t
   },
 )
 
@@ -166,11 +187,13 @@ function draft(): EntryDraft {
   return { ...common, kind: 'transfer', toAccount: form.toAccount }
 }
 
-function save(addAnother = false) {
+async function save(addAnother = false) {
   error.value = null
+  if (busy.value) return
+  busy.value = true
   try {
     let saved: Operation | null = null
-    if (editing.value) ledger.updateEntry(props.operation!.id, draft())
+    if (editing.value) await store.editOperation(props.operation!, draft())
     else saved = ledger.addEntry(draft())
     emit('saved', saved)
     // Nuova posizione d'investimento senza dati dello strumento: si chiedono subito.
@@ -186,14 +209,26 @@ function save(addAnother = false) {
     } else emit('close')
   } catch (e) {
     error.value = e instanceof LedgerError ? e.message : (e as Error).message
+  } finally {
+    busy.value = false
   }
 }
 
-function remove() {
-  if (!props.operation || !window.confirm('Eliminare definitivamente questa voce?')) return
-  ledger.removeEntry(props.operation.id)
-  emit('saved', null)
-  emit('close')
+async function remove() {
+  if (!props.operation || busy.value) return
+  const where = sheetRow.value ? ` dal foglio Google (scheda ${props.operation.source.sheet}, riga ${props.operation.source.row})` : ''
+  if (!window.confirm(`Eliminare definitivamente questa voce${where}?`)) return
+  busy.value = true
+  error.value = null
+  try {
+    await store.deleteOperation(props.operation)
+    emit('saved', null)
+    emit('close')
+  } catch (e) {
+    error.value = (e as Error).message
+  } finally {
+    busy.value = false
+  }
 }
 
 const KINDS: { value: Kind; label: string }[] = [
@@ -305,6 +340,9 @@ const EXPENSE_TYPES: { value: ExpenseType; label: string; hint: string; emoji: s
         <input v-model="form.description" class="input" placeholder="Es. Spesa Esselunga" autocomplete="off" />
       </label>
 
+      <p v-if="sheetRow && operation" class="muted small">
+        Riga scritta a mano nel foglio (scheda {{ operation.source.sheet }}, riga {{ operation.source.row }}): le modifiche vengono salvate subito sul foglio Google.
+      </p>
       <p class="muted small">Categorie e sotto-categorie nuove vengono aggiunte automaticamente alla Gestione.</p>
       <UiAlert v-if="error" tone="critical">{{ error }}</UiAlert>
     </form>
@@ -314,9 +352,9 @@ const EXPENSE_TYPES: { value: ExpenseType; label: string; hint: string; emoji: s
         <UiButton @click="emit('close')">Chiudi</UiButton>
       </template>
       <template v-else>
-        <UiButton v-if="editing" variant="ghost" icon="trash" class="ef__del" @click="remove">Elimina</UiButton>
-        <UiButton v-if="!editing" @click="save(true)">Salva e aggiungi altra</UiButton>
-        <UiButton type="submit" variant="primary" form="entry-form">{{ editing ? 'Salva modifiche' : 'Aggiungi voce' }}</UiButton>
+        <UiButton v-if="editing" variant="ghost" icon="trash" class="ef__del" :disabled="busy" @click="remove">Elimina</UiButton>
+        <UiButton v-if="!editing && !prefill" @click="save(true)">Salva e aggiungi altra</UiButton>
+        <UiButton type="submit" variant="primary" form="entry-form" :disabled="busy">{{ busy ? 'Salvataggio…' : editing ? 'Salva modifiche' : 'Aggiungi voce' }}</UiButton>
       </template>
     </template>
   </UiDialog>

@@ -22,14 +22,15 @@ import {
   type ImportIssue,
   type SheetStats,
   type CloudConfig,
+  type Operation,
   type SyncDiff,
 } from '../domain'
 import { fetchFinanceSync, FinanceApiError } from '../data/financeApi'
-import { deleteEntries, getRemoteConfig, pushEntries, putRemoteConfig } from '../data/ledgerApi'
+import { deleteEntries, deleteSheetRow, getRemoteConfig, pushEntries, putRemoteConfig, replaceSheetRow, type SheetRowRef } from '../data/ledgerApi'
 import { buildDemoSheets } from '../data/demo'
 import { readJson, removeKey, writeJson } from '@/core/utils/storage'
 import { todayIso } from '@/core/utils/format'
-import { useLedgerStore } from './ledgerStore'
+import { useLedgerStore, type EntryDraft } from './ledgerStore'
 import { useAuthStore } from '@/app/auth/authStore'
 
 export type DataSource = 'sheets' | 'demo'
@@ -230,6 +231,39 @@ export const useFinanceStore = defineStore('finance', () => {
     return ledger.runPlans(todayIso(), existing, nameOf, currencyOf)
   }
 
+  // ---- Modifica di qualsiasi movimento ---------------------------------------
+  /**
+   * Le voci create dall'app passano dalla coda locale (salvataggio automatico);
+   * le righe scritte a mano nel foglio vengono modificate subito sul foglio e poi rilette.
+   */
+  const sheetRowRef = (op: Operation): SheetRowRef | null => {
+    const tab = op.source.sheet
+    return tab === 'Entrate' || tab === 'Uscite' || tab === 'Transazioni' ? { tab, row: op.source.row, expectedId: op.id } : null
+  }
+  /** Il movimento si può modificare dall'app (voce dell'app, o riga del foglio con accesso effettuato). */
+  const canEdit = (op: Operation) => ledger.isManual(op.id) || (source.value === 'sheets' && !!sheetRowRef(op))
+
+  async function writeSheetRow(op: Operation, write: (ref: SheetRowRef, token: string) => Promise<unknown>) {
+    const ref = sheetRowRef(op)
+    if (!ref || source.value !== 'sheets') throw new FinanceApiError('read_only', 'Questo movimento non si può modificare dall’app.')
+    if (!accessToken.value) throw new FinanceApiError('unauthorized', 'Accedi per modificare il foglio Google.')
+    // Una sincronizzazione in corso rileggerebbe dati vecchi: si aspetta che finisca.
+    while (syncing.value) await new Promise((r) => setTimeout(r, 150))
+    await write(ref, accessToken.value)
+    await sync()
+  }
+
+  async function editOperation(op: Operation, d: EntryDraft): Promise<void> {
+    if (ledger.isManual(op.id)) return ledger.updateEntry(op.id, d)
+    const next = ledger.adoptDraft(d)
+    await writeSheetRow(op, (ref, token) => replaceSheetRow(ref, next, token))
+  }
+
+  async function deleteOperation(op: Operation): Promise<void> {
+    if (ledger.isManual(op.id)) return ledger.removeEntry(op.id)
+    await writeSheetRow(op, deleteSheetRow)
+  }
+
   function loadDemo() {
     const result = importFinanceSheets(buildDemoSheets(), { baseCurrency: 'EUR' })
     apply(result, 'demo', new Date().toISOString(), 'Dati dimostrativi')
@@ -326,7 +360,7 @@ export const useFinanceStore = defineStore('finance', () => {
     // stato
     dataset, rawDataset, issues, stats, source, spreadsheetTitle, lastSyncAt, lastDiff, syncing, error, accessToken, filters, today, cloud,
     // azioni
-    init, sync, loadDemo, clearData, resetFilters, runPlans,
+    init, sync, loadDemo, clearData, resetFilters, runPlans, canEdit, editOperation, deleteOperation,
     // derivati
     range, operations, filteredOperations, flowSummary, balanceAsOf, balances, netWorth, months, monthlyFlows, balanceSeries,
     accountNames, categories, subcategoryKeys, currencies, errorCount, warningCount, baseCurrency, blockingError,

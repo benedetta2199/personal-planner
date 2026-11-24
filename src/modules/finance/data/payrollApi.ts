@@ -8,11 +8,33 @@ export interface PayrollSaveResult {
   pdfUrl: string | null
 }
 
+/** Riga già presente nel foglio per lo stesso cedolino. */
+export interface PayrollExistingRow {
+  row: number
+  /** period: stesso anno/mese/tipo; pdf: stesso PDF salvato con un altro periodo. */
+  match: 'period' | 'pdf'
+  mese: string
+  anno: number | null
+  tipo: string
+  /** Netto già registrato, in euro. */
+  netPay: number | null
+  savedAt: string | null
+}
+
+export interface PayrollCheckResult {
+  exists: boolean
+  existing: PayrollExistingRow | null
+  sheetUrl: string | null
+}
+
 export class PayrollApiError extends Error {
   constructor(
     public readonly code: string,
     message: string,
     public readonly status?: number,
+    /** Presente quando il salvataggio è rifiutato perché la riga esiste già (code "already_saved"). */
+    public readonly existing?: PayrollExistingRow,
+    public readonly sheetUrl?: string,
   ) {
     super(message)
   }
@@ -28,9 +50,14 @@ async function toBase64(file: File): Promise<string> {
   return btoa(binary)
 }
 
-/** Salva il record nel foglio annuale e, se fornito, carica il PDF nella cartella Drive. */
-export async function savePayrollRecord(record: PayrollRecord, accessToken: string, file?: File | null): Promise<PayrollSaveResult> {
-  const pdf = file && file.size <= MAX_PAYROLL_PDF_BYTES ? { fileName: file.name, base64: await toBase64(file) } : undefined
+type ApiBody = Partial<PayrollSaveResult & PayrollCheckResult> & {
+  ok?: boolean
+  code?: string
+  message?: string
+  existing?: PayrollExistingRow | null
+}
+
+async function callPayrollApi(payload: unknown, accessToken: string, failure: string): Promise<ApiBody> {
   let response: Response
   try {
     response = await fetch('/api/finance/payroll', {
@@ -39,20 +66,45 @@ export async function savePayrollRecord(record: PayrollRecord, accessToken: stri
         Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ record, pdf }),
+      body: JSON.stringify(payload),
     })
   } catch {
-    throw new PayrollApiError('network', 'Impossibile raggiungere il servizio di salvataggio dei cedolini.')
+    throw new PayrollApiError('network', 'Impossibile raggiungere il servizio dei cedolini.')
   }
 
-  let body: Partial<PayrollSaveResult> & { ok?: boolean; code?: string; message?: string }
+  let body: ApiBody
   try {
     body = await response.json()
   } catch {
-    throw new PayrollApiError('unavailable', `Servizio di salvataggio non raggiungibile (HTTP ${response.status}).`, response.status)
+    throw new PayrollApiError('unavailable', `Servizio dei cedolini non raggiungibile (HTTP ${response.status}).`, response.status)
   }
-  if (!response.ok || !body.ok || (body.action !== 'inserted' && body.action !== 'updated') || !body.recordKey) {
-    throw new PayrollApiError(body.code ?? 'save_failed', body.message ?? 'Il cedolino non è stato salvato.', response.status)
+  if (!response.ok || !body.ok) {
+    throw new PayrollApiError(body.code ?? 'request_failed', body.message ?? failure, response.status, body.existing ?? undefined, body.sheetUrl ?? undefined)
+  }
+  return body
+}
+
+/** Verifica se il cedolino (stesso anno/mese/tipo o stesso PDF) è già nel foglio annuale. Non scrive nulla. */
+export async function checkPayrollRecord(record: PayrollRecord, accessToken: string): Promise<PayrollCheckResult> {
+  const body = await callPayrollApi({ record, mode: 'check' }, accessToken, 'Impossibile verificare il foglio dei cedolini.')
+  return { exists: Boolean(body.exists), existing: body.existing ?? null, sheetUrl: body.sheetUrl ?? null }
+}
+
+/**
+ * Salva il record nel foglio annuale e, se fornito, carica il PDF nella cartella Drive.
+ * Se il cedolino è già nel foglio il server rifiuta (PayrollApiError "already_saved")
+ * a meno che `overwrite` sia true.
+ */
+export async function savePayrollRecord(
+  record: PayrollRecord,
+  accessToken: string,
+  file?: File | null,
+  options: { overwrite?: boolean } = {},
+): Promise<PayrollSaveResult> {
+  const pdf = file && file.size <= MAX_PAYROLL_PDF_BYTES ? { fileName: file.name, base64: await toBase64(file) } : undefined
+  const body = await callPayrollApi({ record, pdf, overwrite: options.overwrite === true }, accessToken, 'Il cedolino non è stato salvato.')
+  if ((body.action !== 'inserted' && body.action !== 'updated') || !body.recordKey) {
+    throw new PayrollApiError('save_failed', 'Il cedolino non è stato salvato.')
   }
   return {
     action: body.action,

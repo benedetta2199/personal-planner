@@ -29,6 +29,8 @@ function fakeBook(initial: Record<string, unknown[][]> = {}, version = 2) {
     switch (r.action) {
       case 'ping':
         return ok({ version })
+      case 'read':
+        return ok({ title: 'Bilancio', values: Object.fromEntries((r.sheets as string[]).filter((n) => tabs[n]).map((n) => [n, tabs[n]])) })
       case 'table.read': {
         if (!tabs[tab] && r.create) {
           tabs[tab] = []
@@ -120,6 +122,65 @@ describe('salvataggio delle voci sul foglio', () => {
   it('rifiuta voci non create dall app', async () => {
     const r = await call(fakeBook(), { action: 'push', ops: [{ ...expense, id: 'Uscite:abc' }] })
     expect(r.status).toBe(400)
+  })
+})
+
+describe('righe scritte a mano nel foglio', () => {
+  const sheet = () =>
+    fakeBook({
+      Uscite: [
+        ['Giorno', 'Conto', 'Categoria', 'Sotto-categoria', 'Descrizione', 'Importo', 'Valuta', 'Tipologia', 'Note extra'],
+        [46000, 'Revolut', 'Cibo', 'Spesa', 'Conad', 5.87, 'EUR', 'Necessaria', 'nota'],
+        [46001, 'Revolut', 'Cibo', 'Asporto', 'Pizza', 12, 'EUR', 'Aggiuntiva', ''],
+      ],
+    })
+  const idOf = (book: ReturnType<typeof fakeBook>, description: string) => {
+    const op = importFinanceSheets(book.tabs as RawSheets, { baseCurrency: 'EUR' }).dataset.operations.find((o) => o.description === description)!
+    return { id: op.id, row: op.source.row }
+  }
+
+  it('corregge la riga, conserva le colonne non gestite e la rende una voce dell app', async () => {
+    const book = sheet()
+    const { id, row } = idOf(book, 'Conad')
+    const r = await call(book, { action: 'row.replace', tab: 'Uscite', row, expectedId: id, op: { ...expense, id: 'm-fix001', date: '2025-12-09', description: 'Conad', amount: 597, category: 'Cibo', subcategory: 'Spesa', expenseType: 'necessary' } })
+    expect(r.body).toMatchObject({ ok: true, updated: 1 })
+    expect(book.tabs.Uscite).toHaveLength(3)
+    expect(book.tabs.Uscite[1][8]).toBe('nota')
+    const conad = importFinanceSheets(book.tabs as RawSheets, { baseCurrency: 'EUR' }).dataset.operations.find((o) => o.description === 'Conad')!
+    expect(appEntryId(conad.id)).toBe('m-fix001')
+    expect(conad).toMatchObject({ amount: 597, date: '2025-12-09' })
+  })
+
+  it('sposta la riga nell altra scheda se cambia tipo', async () => {
+    const book = sheet()
+    const { id, row } = idOf(book, 'Pizza')
+    await call(book, { action: 'row.replace', tab: 'Uscite', row, expectedId: id, op: { ...expense, id: 'm-fix002', kind: 'income', expenseType: undefined, category: 'Rimborso' } })
+    expect(book.tabs.Uscite).toHaveLength(2)
+    expect(book.tabs.Entrate).toHaveLength(2)
+  })
+
+  it('elimina la riga indicata', async () => {
+    const book = sheet()
+    const { id, row } = idOf(book, 'Conad')
+    const r = await call(book, { action: 'row.delete', tab: 'Uscite', row, expectedId: id })
+    expect(r.body).toMatchObject({ ok: true, deleted: 1 })
+    expect(book.tabs.Uscite.map((x) => x[4])).toEqual(['Descrizione', 'Pizza'])
+  })
+
+  it('non tocca nulla se la riga è cambiata dopo l ultima lettura', async () => {
+    const book = sheet()
+    const { id } = idOf(book, 'Conad')
+    // La riga 2 adesso contiene un'altra voce (es. riga inserita sopra nel frattempo).
+    const r = await call(book, { action: 'row.delete', tab: 'Uscite', row: 3, expectedId: id })
+    expect(r.status).toBe(409)
+    expect(r.body).toMatchObject({ ok: false, code: 'row_changed' })
+    expect(book.tabs.Uscite).toHaveLength(3)
+  })
+
+  it('rifiuta l intestazione e schede non valide', async () => {
+    const book = sheet()
+    expect((await call(book, { action: 'row.delete', tab: 'Uscite', row: 1, expectedId: 'x' })).status).toBe(400)
+    expect((await call(book, { action: 'row.delete', tab: '_planner', row: 2, expectedId: 'x' })).status).toBe(400)
   })
 })
 

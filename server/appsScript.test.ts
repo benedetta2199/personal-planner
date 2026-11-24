@@ -96,10 +96,10 @@ describe('Apps Script bridge', () => {
     expect(actions).toEqual([
       'drive.ensure:2026',
       'drive.ensure:busta_paga_2026',
+      'table.read',
       'drive.ensure:busta_paga',
       'drive.findByHash',
       'drive.upload:04-26.pdf',
-      'table.read',
       'range.put',
       'rows.append',
     ])

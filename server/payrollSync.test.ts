@@ -2,11 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('./payrollSheets.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./payrollSheets.js')>()
-  return { ...actual, savePayroll: vi.fn() }
+  return { ...actual, savePayroll: vi.fn(), checkPayroll: vi.fn() }
 })
 
 import { handlePayrollSave } from './payrollSync.js'
-import { savePayroll } from './payrollSheets.js'
+import { checkPayroll, PayrollDuplicateError, savePayroll } from './payrollSheets.js'
 
 const record = {
   recordKey: 'ignored-client-key',
@@ -34,7 +34,10 @@ const baseRequest = {
 }
 
 describe('payroll save endpoint', () => {
-  beforeEach(() => vi.mocked(savePayroll).mockReset())
+  beforeEach(() => {
+    vi.mocked(savePayroll).mockReset()
+    vi.mocked(checkPayroll).mockReset()
+  })
 
   it('requires the configured access token before validating or writing', async () => {
     const result = await handlePayrollSave({ ...baseRequest, authorization: 'Bearer wrong-token' })
@@ -79,6 +82,30 @@ describe('payroll save endpoint', () => {
       baseRequest.env,
       expect.objectContaining({ recordKey: '2026-03-normale', sourceHash: record.sourceHash }),
       null,
+      { overwrite: false },
     )
+  })
+
+  it('checks whether the payslip is already in the sheet without saving', async () => {
+    const existing = { row: 4, match: 'period' as const, mese: 'Marzo', anno: 2026, tipo: 'Normale', netPay: 852.52, savedAt: null }
+    vi.mocked(checkPayroll).mockResolvedValue({ exists: true, existing, sheetUrl: 'https://sheet' })
+
+    const result = await handlePayrollSave({ ...baseRequest, body: { record, mode: 'check' } })
+
+    expect(result).toMatchObject({ status: 200, body: { ok: true, mode: 'check', exists: true, existing } })
+    expect(savePayroll).not.toHaveBeenCalled()
+  })
+
+  it('returns 409 with the existing row when the payslip is already saved, and passes overwrite through', async () => {
+    const existing = { row: 4, match: 'period' as const, mese: 'Marzo', anno: 2026, tipo: 'Normale', netPay: 852.52, savedAt: null }
+    vi.mocked(savePayroll).mockRejectedValueOnce(new PayrollDuplicateError(existing, 'https://sheet'))
+
+    const rejected = await handlePayrollSave({ ...baseRequest, body: { record } })
+    expect(rejected).toMatchObject({ status: 409, body: { ok: false, code: 'already_saved', existing, sheetUrl: 'https://sheet' } })
+
+    vi.mocked(savePayroll).mockResolvedValueOnce({ action: 'updated', sheetUrl: 'https://sheet', pdf: 'skipped', pdfUrl: null })
+    const updated = await handlePayrollSave({ ...baseRequest, body: { record, overwrite: true } })
+    expect(updated).toMatchObject({ status: 200, body: { ok: true, action: 'updated' } })
+    expect(vi.mocked(savePayroll).mock.calls[1][3]).toEqual({ overwrite: true })
   })
 })

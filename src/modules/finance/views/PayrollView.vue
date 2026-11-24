@@ -7,7 +7,14 @@ import UiIcon from '@/core/ui/UiIcon.vue'
 import { compareNetWithSalary, CORE_FIELD_COLUMNS, PAYROLL_DETAIL_COLUMNS, parseAmount, parseDecimal, type PayrollRecord, type SalaryMatch } from '../domain'
 import { formatDate, formatMoney } from '@/core/utils/format'
 import { readPayrollPdf } from '../data/localFiles'
-import { MAX_PAYROLL_PDF_BYTES, PayrollApiError, savePayrollRecord, type PayrollSaveResult } from '../data/payrollApi'
+import {
+  checkPayrollRecord,
+  MAX_PAYROLL_PDF_BYTES,
+  PayrollApiError,
+  savePayrollRecord,
+  type PayrollExistingRow,
+  type PayrollSaveResult,
+} from '../data/payrollApi'
 import { useFinanceStore } from '../store/financeStore'
 
 interface PayrollDraft {
@@ -21,7 +28,16 @@ interface PayrollDraft {
   error: string
   saved: PayrollSaveResult | null
   saving: boolean
+  /** Esito del controllo "riga già presente nel foglio". */
+  sheetCheck: SheetCheck
+  /** Conferma esplicita di sovrascrivere la riga esistente. */
+  overwrite: boolean
 }
+
+type SheetCheck =
+  | { state: 'idle' | 'checking' | 'new' }
+  | { state: 'exists'; existing: PayrollExistingRow; sheetUrl: string | null }
+  | { state: 'error'; message: string }
 
 type PayrollValueField = 'basePay' | 'grossPay' | 'totalDeductions' | 'netPay' | 'hoursWorked' | 'inpsTaxable' | 'irpefTaxable' | 'irpefPaid' | 'vacationRemaining' | 'permitsRemaining'
 
@@ -153,9 +169,13 @@ async function readFiles(files: File[]) {
         error: '',
         saved: null,
         saving: false,
+        sheetCheck: { state: 'idle' },
+        overwrite: false,
       })
       // Mostra subito il cedolino letto, senza attendere gli altri.
       drafts.value = [...loaded]
+      // Controllo duplicati sul proxy reattivo, così l'esito aggiorna la card.
+      void checkSheet(drafts.value[drafts.value.length - 1])
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : String(reason)
       warnings.push(`Cedolino ${index + 1}: ${message}`)
@@ -188,12 +208,62 @@ function setValue(draft: PayrollDraft, field: PayrollValueField, unit: 'money' |
   draft.saved = null
 }
 
+// ---- Controllo "già presente nel foglio" ------------------------------------------
+
+const checkRuns = new WeakMap<PayrollDraft, number>()
+const checkTimers = new WeakMap<PayrollDraft, number>()
+
+async function checkSheet(draft: PayrollDraft) {
+  draft.overwrite = false
+  if (!store.accessToken || !draft.record.year || !draft.record.month) {
+    draft.sheetCheck = { state: 'idle' }
+    return
+  }
+  // Solo l'ultima verifica avviata conta (il periodo può cambiare mentre è in corso).
+  const run = (checkRuns.get(draft) ?? 0) + 1
+  checkRuns.set(draft, run)
+  draft.sheetCheck = { state: 'checking' }
+  try {
+    const result = await checkPayrollRecord(draft.record, store.accessToken)
+    if (checkRuns.get(draft) !== run) return
+    draft.sheetCheck = result.exists && result.existing
+      ? { state: 'exists', existing: result.existing, sheetUrl: result.sheetUrl }
+      : { state: 'new' }
+  } catch (reason) {
+    if (checkRuns.get(draft) !== run) return
+    draft.sheetCheck = { state: 'error', message: reason instanceof Error ? reason.message : String(reason) }
+  }
+}
+
+/** Ricontrolla dopo una modifica di periodo/tipo, senza una chiamata per ogni tasto. */
+function scheduleCheck(draft: PayrollDraft) {
+  window.clearTimeout(checkTimers.get(draft))
+  checkTimers.set(draft, window.setTimeout(() => void checkSheet(draft), 450))
+}
+
+function existingLabel(existing: PayrollExistingRow) {
+  const period = `${existing.mese} ${existing.anno ?? ''}`.trim()
+  return existing.tipo && existing.tipo !== 'Normale' ? `${period} · ${existing.tipo}` : period
+}
+
+function existingSavedAt(existing: PayrollExistingRow) {
+  if (!existing.savedAt) return ''
+  const date = new Date(existing.savedAt)
+  return Number.isNaN(date.getTime()) ? existing.savedAt : new Intl.DateTimeFormat('it-IT', { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+}
+
+function canSave(draft: PayrollDraft) {
+  if (!isReady(draft.record) || draft.saving || draft.saved || draft.sheetCheck.state === 'checking') return false
+  return draft.sheetCheck.state !== 'exists' || draft.overwrite
+}
+
 function setPeriod(draft: PayrollDraft, field: 'year' | 'month', event: Event) {
   const raw = (event.target as HTMLInputElement).value
   const value = raw ? Number(raw) : null
   draft.record[field] = value
   draft.saved = null
   updateRecordKey(draft.record)
+  scheduleCheck(draft)
 }
 
 function updateRecordKey(record: PayrollRecord) {
@@ -206,6 +276,7 @@ function setType(draft: PayrollDraft, event: Event) {
   draft.record.type = (event.target as HTMLSelectElement).value
   draft.saved = null
   updateRecordKey(draft.record)
+  scheduleCheck(draft)
 }
 
 async function save(draft: PayrollDraft) {
@@ -221,13 +292,21 @@ async function save(draft: PayrollDraft) {
   draft.error = ''
   draft.saved = null
   try {
-    const result = await savePayrollRecord(draft.record, store.accessToken, draft.file)
+    const overwrite = draft.sheetCheck.state === 'exists' && draft.overwrite
+    const result = await savePayrollRecord(draft.record, store.accessToken, draft.file, { overwrite })
     draft.saved = result
     savedItems.value = [{ key: `${draft.record.sourceHash}-${Date.now()}`, label: draftTitle(draft), year: draft.record.year, result }, ...savedItems.value]
     // La conferma resta visibile un istante sulla card, poi la card esce.
     window.setTimeout(() => removeDraft(draft), 1100)
   } catch (reason) {
-    draft.error = reason instanceof PayrollApiError ? reason.message : reason instanceof Error ? reason.message : String(reason)
+    if (reason instanceof PayrollApiError && reason.code === 'already_saved' && reason.existing) {
+      // Inserita nel frattempo (o controllo non riuscito): serve la conferma esplicita.
+      draft.sheetCheck = { state: 'exists', existing: reason.existing, sheetUrl: reason.sheetUrl ?? null }
+      draft.overwrite = false
+      draft.error = ''
+    } else {
+      draft.error = reason instanceof PayrollApiError ? reason.message : reason instanceof Error ? reason.message : String(reason)
+    }
   } finally {
     draft.saving = false
   }
@@ -425,9 +504,38 @@ function onCardLeave(el: Element, done: () => void) {
         <li v-for="warning in draft.warnings" :key="warning">{{ warning }}</li>
       </ul>
       <p v-if="draft.error" class="error" role="alert">{{ draft.error }}</p>
+      <Transition name="fade" mode="out-in">
+        <p v-if="draft.sheetCheck.state === 'checking'" key="checking" class="sheet-check sheet-check--checking small" role="status">
+          <span class="spinner" aria-hidden="true" /> Verifico se è già nel foglio busta_paga_{{ draft.record.year }}…
+        </p>
+        <p v-else-if="draft.sheetCheck.state === 'new'" key="new" class="sheet-check sheet-check--new small" role="status">
+          <UiIcon name="checkCircle" :size="15" /> Non ancora presente nel foglio busta_paga_{{ draft.record.year }}.
+        </p>
+        <div v-else-if="draft.sheetCheck.state === 'exists'" key="exists" class="sheet-check sheet-check--exists" role="alert">
+          <div class="sheet-check__head">
+            <UiIcon name="alert" :size="17" />
+            <strong v-if="draft.sheetCheck.existing.match === 'period'">Questo cedolino è già nel foglio</strong>
+            <strong v-else>Questo PDF è già stato salvato come {{ existingLabel(draft.sheetCheck.existing) }}</strong>
+          </div>
+          <p class="small">
+            Riga {{ draft.sheetCheck.existing.row }} · {{ existingLabel(draft.sheetCheck.existing) }}
+            <template v-if="draft.sheetCheck.existing.netPay !== null"> · netto {{ formatMoney(Math.round(draft.sheetCheck.existing.netPay * 100), 'EUR') }}</template>
+            <template v-if="draft.sheetCheck.existing.savedAt"> · salvata il {{ existingSavedAt(draft.sheetCheck.existing) }}</template>
+            <template v-if="draft.sheetCheck.sheetUrl"> · <a :href="draft.sheetCheck.sheetUrl" target="_blank" rel="noopener">apri il foglio</a></template>
+          </p>
+          <label class="sheet-check__confirm small">
+            <input v-model="draft.overwrite" type="checkbox" />
+            Sovrascrivi la riga esistente con questi dati<template v-if="draft.sheetCheck.existing.match === 'pdf'"> (il periodo diventerà quello indicato sopra)</template>
+          </label>
+        </div>
+        <p v-else-if="draft.sheetCheck.state === 'error'" key="error" class="sheet-check sheet-check--error small">
+          <UiIcon name="info" :size="15" /> Non è stato possibile verificare il foglio ({{ draft.sheetCheck.message }}). Al salvataggio il controllo viene ripetuto.
+          <button type="button" class="link-button" @click="checkSheet(draft)">Riprova</button>
+        </p>
+      </Transition>
       <div class="row payroll__actions">
-        <UiButton variant="primary" icon="lock" :loading="draft.saving" :disabled="!isReady(draft.record) || draft.saving || Boolean(draft.saved)" @click="save(draft)">
-          {{ draft.saving ? 'Salvataggio in corso…' : 'Salva su Google Drive' }}
+        <UiButton variant="primary" icon="lock" :loading="draft.saving" :disabled="!canSave(draft)" @click="save(draft)">
+          {{ draft.saving ? 'Salvataggio in corso…' : draft.sheetCheck.state === 'exists' ? 'Sovrascrivi su Google Drive' : 'Salva su Google Drive' }}
         </UiButton>
         <span v-if="!isReady(draft.record)" class="muted small">Per salvare servono periodo e netto in busta.</span>
       </div>
@@ -564,7 +672,18 @@ function onCardLeave(el: Element, done: () => void) {
 .warnings { margin: var(--space-3) 0 0; padding-left: 20px; color: var(--text-secondary); font-size: 0.85rem; }
 .warnings li + li { margin-top: 4px; }
 .error { margin-top: var(--space-3); color: var(--negative); }
-.payroll__actions { margin-top: var(--space-4); }
+.payroll__actions { margin-top: var(--space-3); }
+.sheet-check { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: var(--space-4); }
+.sheet-check--checking { color: var(--text-secondary); }
+.sheet-check--new { color: var(--positive); }
+.sheet-check--error { color: var(--text-secondary); }
+.sheet-check--exists { display: block; padding: var(--space-3); border-radius: var(--radius); background: var(--warning-soft); border: 1px solid var(--status-warning); animation: fade-down 220ms ease; }
+.sheet-check__head { display: flex; align-items: center; gap: 8px; color: var(--status-warning); }
+.sheet-check--exists p { margin: 6px 0 0; color: var(--text-secondary); }
+.sheet-check__confirm { display: flex; align-items: center; gap: 8px; margin-top: var(--space-3); cursor: pointer; font-weight: 600; }
+.link-button { border: 0; padding: 0; background: none; color: var(--accent); font: inherit; text-decoration: underline; cursor: pointer; }
+.spinner { width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--accent); animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 @media (max-width: 1100px) { .sk-grid { grid-template-columns: 1fr; } .sk--pdf { height: 44px; } .review { grid-template-columns: minmax(0, 1fr); } .review__pdf { position: static; align-items: flex-start; } .review__pdf .pdf-frame { align-self: stretch; } .pdf-frame { height: 70vh; } }
 @media (max-width: 760px) { .payroll-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 420px) { .payroll-grid { grid-template-columns: minmax(0, 1fr); } .period label { flex: 1; } .period .input { min-width: 0; width: 100%; } }

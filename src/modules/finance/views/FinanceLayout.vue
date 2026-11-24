@@ -167,7 +167,7 @@ const cloudChip = computed(() => {
 .fin__sr { display: none; }
 
 /* Schede di sezione + ingranaggio della gestione */
-.fin__navrow { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.fin__navrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
 .fin__tabs {
   display: flex;
   gap: 4px;
