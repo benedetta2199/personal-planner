@@ -2,7 +2,7 @@ import type { RouteRecordRaw } from 'vue-router'
 import type { IconName } from '@/core/ui/icons'
 import { financeModule } from '@/modules/finance'
 import { agendaModule } from '@/modules/agenda'
-import { goalsModule, habitsModule, journalModule } from '@/modules/planner'
+import { journalModule } from '@/modules/planner'
 
 /**
  * Contratto di un modulo della piattaforma. Per aggiungere un modulo:
@@ -29,7 +29,7 @@ const planned = (id: string, label: string, icon: IconName, description: string)
   status: 'planned',
 })
 
-export const modules: AppModule[] = [financeModule, agendaModule, goalsModule, habitsModule, journalModule]
+export const modules: AppModule[] = [financeModule, agendaModule, journalModule]
 
 /** Segnaposto per moduli futuri: `planned('id', 'Etichetta', 'icona', 'Descrizione')`. */
 export { planned }

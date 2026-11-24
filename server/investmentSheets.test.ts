@@ -94,6 +94,20 @@ describe('investments Google Sheet', () => {
     expect((await handleInvestments(req('GET', s, { token: 'nope' }))).status).toBe(401)
   })
 
+  it('keeps the manual value correction', () => {
+    const row = instrumentToRow({ ...bond, instrument: { ...bond.instrument, type: 'bond', adjustment: -3.2, adjustmentFrom: '2026-11-24' } } as never)
+    expect(rowToInstrument(row)!.instrument).toMatchObject({ adjustment: -3.2, adjustmentFrom: '2026-11-24' })
+  })
+
+  it('adds the new columns to a sheet from a previous version', async () => {
+    const legacy = HEADERS.slice(0, 14)
+    const s = fakeSheets([legacy, instrumentToRow(bond as never).slice(0, 14)])
+    const list = await handleInvestments(req('GET', s))
+    expect(list.body).toMatchObject({ ok: true })
+    expect(s.rows()[0]).toEqual(HEADERS)
+    expect((list.body as { instruments: { instrument: { adjustment: unknown } }[] }).instruments[0].instrument.adjustment).toBeNull()
+  })
+
   it('reports a missing sheet configuration', async () => {
     const s = fakeSheets()
     const res = await handleInvestments({ ...req('GET', s), env: { APP_ACCESS_TOKEN: 'secret' } })

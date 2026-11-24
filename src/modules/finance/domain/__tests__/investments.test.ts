@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { accruedInterest, computePortfolioSeries, computePositions, couponPeriod, groupInvestmentOps, summarizeInvestmentMonth, summarizePortfolio, valueAt, type QuoteSeries } from '../investments'
+import { accruedInterest, adjustmentOf, computePortfolioSeries, computePositions, couponPeriod, groupInvestmentOps, summarizeInvestmentMonth, summarizePortfolio, valueAt, type QuoteSeries } from '../investments'
 import type { FinanceDataset, Operation } from '../types'
 
 let n = 0
@@ -257,5 +257,14 @@ describe('summarizeInvestmentMonth', () => {
     expect(r.rows).toEqual([])
     expect(r.gain).toBeNull()
     expect(r.endValue).toBeNull()
+  })
+})
+
+describe('adjustmentOf', () => {
+  it('applica la correzione manuale solo dalla sua data in poi', () => {
+    const cfg = { ticker: 'X', units: null, adjustment: -3.2, adjustmentFrom: '2026-11-24' }
+    expect(adjustmentOf(cfg, '2026-11-23')).toBe(0)
+    expect(adjustmentOf(cfg, '2026-11-24')).toBe(-320)
+    expect(adjustmentOf(undefined, '2026-11-24')).toBe(0)
   })
 })

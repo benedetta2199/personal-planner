@@ -1,4 +1,6 @@
 <script setup lang="ts">
+/** `embedded`: sotto-sezione del Planner, senza titolo di pagina proprio. */
+const props = defineProps<{ embedded?: boolean }>()
 import { computed, ref } from 'vue'
 import UiPageHeader from '@/core/ui/UiPageHeader.vue'
 import UiPeriodNav from '@/core/ui/UiPeriodNav.vue'
@@ -49,7 +51,7 @@ const pct = (v: number | null) => (v === null ? '—' : `${Math.round(v * 100)}%
 
 <template>
   <div class="hv">
-    <UiPageHeader title="Abitudini" subtitle="Piccole azioni ripetute ogni giorno">
+    <UiPageHeader :title="props.embedded ? undefined : 'Abitudini'" subtitle="Piccole azioni ripetute ogni giorno">
       <UiButton variant="primary" icon="plus" @click="edit(null)">Nuova abitudine</UiButton>
     </UiPageHeader>
     <UiAlert v-if="store.saveFailed" tone="critical" title="Salvataggio non riuscito">Il browser non permette di salvare i dati: le ultime modifiche andranno perse alla chiusura.</UiAlert>

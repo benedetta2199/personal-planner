@@ -104,7 +104,7 @@ const cloudChip = computed(() => {
         active-class=""
         exact-active-class=""
       >
-        <UiIcon name="settings" :size="18" />
+        <UiIcon name="gear" :size="20" />
       </RouterLink>
     </div>
 

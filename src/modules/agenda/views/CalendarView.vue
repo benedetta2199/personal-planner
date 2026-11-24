@@ -110,7 +110,7 @@ const MAX_CHIPS = 3
           <li v-for="g in dayGoals" :key="g.goal.id + g.title">
             <UiIcon :name="g.kind === 'goal' ? 'flag' : 'target'" :size="16" />
             <div>
-              <RouterLink to="/obiettivi">{{ g.title }}</RouterLink>
+              <RouterLink :to="{ name: 'goals' }">{{ g.title }}</RouterLink>
               <span class="muted small">{{ g.kind === 'goal' ? 'Scadenza obiettivo' : `Tappa di «${g.goal.title}»` }} · {{ areaOf(g.goal.area).label }}<template v-if="g.done"> · completata</template></span>
             </div>
           </li>

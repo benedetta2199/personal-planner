@@ -35,8 +35,9 @@ const isOn = (name: string) => route.matched.some((r) => r.name === name)
   color: var(--text-secondary); white-space: nowrap; font-weight: 500; font-size: 0.88rem;
   transition: background 0.15s ease, color 0.15s ease;
 }
-.tn__tab:hover { color: var(--text-primary); text-decoration: none; }
-.tn__tab--on { color: var(--on-brand); background: var(--brand); font-weight: 600; }
+.tn__tab:hover { background: var(--brand-soft); color: var(--on-brand); text-decoration: none; }
+.tn__tab--on, .tn__tab--on:hover { color: var(--brand); background: var(--ink); font-weight: 600; }
+.tn__tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .tn__badge { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--status-critical); color: #fff; font-size: 0.7rem; font-weight: 600; display: inline-grid; place-items: center; }
 @media (max-width: 600px) { .tn__tab { padding: 8px 10px; } }
 </style>

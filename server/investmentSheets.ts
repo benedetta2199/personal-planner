@@ -31,7 +31,11 @@ export const HEADERS = [
   'Cedole per anno',
   'Scadenza',
   'Aggiornato',
+  'Correzione valore',
+  'Correzione dal',
 ]
+/** Colonne delle versioni precedenti: le nuove vengono aggiunte in coda al primo accesso. */
+const LEGACY_HEADER_COUNT = 14
 const LAST_COL = String.fromCharCode('A'.charCodeAt(0) + HEADERS.length - 1)
 
 const TYPE_TO_SHEET: Record<InstrumentType, string> = { etf: 'ETF', stock: 'Azione', bond: 'Obbligazione' }
@@ -95,6 +99,8 @@ export function instrumentToRow(s: StoredInstrument): (string | number)[] {
     cell(i.couponFrequency),
     cell(i.maturity),
     i.updatedAt ?? new Date().toISOString(),
+    cell(i.adjustment),
+    cell(i.adjustmentFrom),
   ]
 }
 
@@ -118,6 +124,8 @@ export function rowToInstrument(row: unknown[]): StoredInstrument | null {
       couponFrequency: num(row[11]),
       maturity: str(row[12]) || null,
       updatedAt: str(row[13]) || undefined,
+      adjustment: num(row[14]),
+      adjustmentFrom: str(row[15]) || null,
     },
   }
 }
@@ -143,6 +151,8 @@ export function parseStored(input: unknown): { value?: StoredInstrument; error?:
     coupon: num(i.coupon),
     couponFrequency: num(i.couponFrequency),
     maturity: str(i.maturity) || null,
+    adjustment: num(i.adjustment),
+    adjustmentFrom: str(i.adjustmentFrom) || null,
     updatedAt: new Date().toISOString(),
   }
   if (instrument.ticker && !/^[A-Z0-9.^=\-]{1,24}$/.test(instrument.ticker)) return { error: 'Ticker non valido.' }
@@ -272,8 +282,18 @@ class InstrumentTable {
   /** Righe della scheda con intestazioni verificate. */
   private async rows(): Promise<unknown[][]> {
     const rows = await this.io.read()
-    if (HEADERS.some((h, i) => str(rows[0]?.[i]) !== h)) {
+    const head = rows[0] ?? []
+    if (HEADERS.slice(0, LEGACY_HEADER_COUNT).some((h, i) => str(head[i]) !== h)) {
       throw new SheetsError('sheet_schema_mismatch', `La scheda «${SHEET_NAME}» esiste ma ha intestazioni diverse da quelle attese.`, 409)
+    }
+    const extra = HEADERS.slice(LEGACY_HEADER_COUNT)
+    if (extra.some((h, i) => str(head[LEGACY_HEADER_COUNT + i]) !== h)) {
+      // Scheda di una versione precedente: si aggiungono le colonne nuove, se libere.
+      if (extra.some((_, i) => str(head[LEGACY_HEADER_COUNT + i]) !== '')) {
+        throw new SheetsError('sheet_schema_mismatch', `La scheda «${SHEET_NAME}» ha colonne inattese dopo «Aggiornato».`, 409)
+      }
+      await this.io.putRow(1, HEADERS)
+      rows[0] = [...HEADERS]
     }
     return rows
   }

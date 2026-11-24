@@ -97,7 +97,7 @@ const empty = computed(() => !store.state.commitments.length)
         <section class="panel">
           <div class="panel__head">
             <h2 class="panel__title"><UiIcon name="repeat" /> Abitudini</h2>
-            <RouterLink to="/abitudini" class="small">Apri</RouterLink>
+            <RouterLink :to="{ name: 'habits' }" class="small">Apri</RouterLink>
           </div>
           <ul v-if="todayHabits.length" class="hb">
             <li v-for="h in todayHabits" :key="h.id">
@@ -114,7 +114,7 @@ const empty = computed(() => !store.state.commitments.length)
         <section class="panel">
           <div class="panel__head">
             <h2 class="panel__title"><UiIcon name="target" /> Obiettivi · 30 giorni</h2>
-            <RouterLink to="/obiettivi" class="small">Apri</RouterLink>
+            <RouterLink :to="{ name: 'goals' }" class="small">Apri</RouterLink>
           </div>
           <ul v-if="goalItems.length" class="gl">
             <li v-for="i in goalItems" :key="i.goal.id + i.kind + i.title + i.date">

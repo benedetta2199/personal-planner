@@ -1,12 +1,12 @@
 <script setup lang="ts">
-/** Intestazione di pagina di un modulo: titolo, sottotitolo e azioni a destra. */
-defineProps<{ title: string; subtitle?: string }>()
+/** Intestazione di pagina di un modulo: titolo, sottotitolo e azioni a destra. Senza titolo diventa una barra di sezione. */
+defineProps<{ title?: string; subtitle?: string }>()
 </script>
 
 <template>
   <header class="ph">
     <div class="ph__title">
-      <h1>{{ title }}</h1>
+      <h1 v-if="title">{{ title }}</h1>
       <p v-if="subtitle || $slots.subtitle" class="muted small"><slot name="subtitle">{{ subtitle }}</slot></p>
     </div>
     <div v-if="$slots.default" class="row"><slot /></div>

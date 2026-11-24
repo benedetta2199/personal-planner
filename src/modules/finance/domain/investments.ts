@@ -118,6 +118,13 @@ export function groupInvestmentOps(ds: FinanceDataset, ops: Operation[] = ds.ope
 /** Gli importi sono in centesimi, i prezzi in unità di valuta. */
 const CENTS = 100
 
+/** Correzione manuale del valore valida a quella data, in centesimi. */
+export function adjustmentOf(cfg: InvestmentConfig | undefined, date: IsoDate): Cents {
+  if (!cfg?.adjustment || !Number.isFinite(cfg.adjustment)) return 0
+  if (cfg.adjustmentFrom && date < cfg.adjustmentFrom) return 0
+  return Math.round(cfg.adjustment * CENTS)
+}
+
 interface ReplayState {
   units: number
   cost: number
@@ -248,6 +255,8 @@ export interface Position {
   realized: Cents
   units: number | null
   unitsManual: boolean
+  /** Correzione manuale già inclusa in `value` (centesimi, 0 se assente). */
+  adjustment: Cents
   /** Prezzo unitario (ETF/azioni) o corso in % del nominale (obbligazioni). */
   price: number | null
   priceIsPct: boolean
@@ -308,15 +317,17 @@ export function computePositions(
         const model = cfg && !closed ? bondModel(cfg, g.events[0].date, r.cost, q) : null
         const base = { ...common, costBasis: Math.round(r.cost), realized: Math.round(r.realized), units: null, unitsManual: false, priceIsPct: true, maturity: cfg?.maturity ?? null }
         if (!model) {
-          return { ...base, status: closed ? 'tracked' : 'needs-data', price: null, priceDate: null, accrued: null, matured: false, value: Math.round(r.cost), unrealized: null, unrealizedPct: null, dayChange: null, dayChangePct: null, closed }
+          return { ...base, adjustment: 0, status: closed ? 'tracked' : 'needs-data', price: null, priceDate: null, accrued: null, matured: false, value: Math.round(r.cost), unrealized: null, unrealizedPct: null, dayChange: null, dayChangePct: null, closed }
         }
-        const value = model.valueAt(today, r.cost)
+        const adjustment = adjustmentOf(cfg, today)
+        const value = model.valueAt(today, r.cost) + adjustment
         const costYesterday = replay(g.events, null, prevDay(today)).cost
-        const yesterday = model.valueAt(prevDay(today), costYesterday)
+        const yesterday = model.valueAt(prevDay(today), costYesterday) + adjustmentOf(cfg, prevDay(today))
         // Variazione solo se ieri si possedeva la stessa quantità (altrimenti è un nuovo acquisto).
         const dayChange = Math.abs(costYesterday - r.cost) < 1 ? value - yesterday : null
         return {
           ...base,
+          adjustment,
           status: 'tracked',
           price: model.pricePctAt(today),
           priceDate: q?.priceDate ?? today,
@@ -337,7 +348,10 @@ export function computePositions(
       const closed = r.cost < 1 && r.units < 1e-9
       const unitsManual = cfg?.units !== null && cfg?.units !== undefined && !closed
       const units = q ? (unitsManual ? cfg!.units! : r.units) : null
-      const value = q && units !== null ? units * q.price * CENTS : r.cost
+      const adjustment = closed ? 0 : adjustmentOf(cfg, today)
+      const value = (q && units !== null ? units * q.price * CENTS : r.cost) + adjustment
+      // Con una correzione il valore è quello reale anche senza quotazioni: il rendimento si può calcolare.
+      const valued = !!q || adjustment !== 0
       const status: Position['status'] = !ticker ? 'needs-data' : q ? 'tracked' : errors[ticker] ? 'error' : 'pending'
       const prev = q?.previousClose ?? null
       const dayChange = q && units !== null && prev !== null ? units * (q.price - prev) * CENTS : null
@@ -348,6 +362,7 @@ export function computePositions(
         realized: Math.round(r.realized),
         units,
         unitsManual,
+        adjustment,
         price: q?.price ?? null,
         priceIsPct: false,
         priceDate: q?.priceDate ?? null,
@@ -355,8 +370,8 @@ export function computePositions(
         maturity: null,
         matured: false,
         value: Math.round(value),
-        unrealized: q ? Math.round(value - r.cost) : null,
-        unrealizedPct: q && r.cost > 0 ? (value - r.cost) / r.cost : null,
+        unrealized: valued ? Math.round(value - r.cost) : null,
+        unrealizedPct: valued && r.cost > 0 ? (value - r.cost) / r.cost : null,
         dayChange: dayChange === null ? null : Math.round(dayChange),
         dayChangePct: dayChange !== null && prev ? q!.price / prev - 1 : null,
         closed,
@@ -535,15 +550,16 @@ export function computePortfolioSeries(
     const est = priceAt ? replay(g.events, priceAt).units : 0
     const scale = q && cfg?.units !== null && cfg?.units !== undefined && est > 0 ? cfg.units / est : 1
     return { g, bond: null, priceAt, q, scale }
-  })
+  }).map((x) => ({ ...x, cfg: configs[x.g.key] }))
 
   return sorted.map((date) => {
     let value = 0
     let invested = 0
-    for (const { g, bond, priceAt, q, scale } of prepared) {
+    for (const { g, bond, priceAt, q, scale, cfg } of prepared) {
       if (g.events[0].date > date) continue
       const r = replay(g.events, priceAt, date)
       invested += r.cost
+      if (r.cost >= 1) value += adjustmentOf(cfg, date)
       if (bond) value += bond.valueAt(date, r.cost)
       else if (q) value += r.units * scale * (date === today ? q.price : valueAt(q.history, date) ?? q.price) * CENTS
       else value += r.cost

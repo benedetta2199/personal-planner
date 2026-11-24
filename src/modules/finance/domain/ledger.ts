@@ -94,6 +94,13 @@ export interface InvestmentConfig {
   couponFrequency?: number | null
   /** Data di scadenza (rimborso del nominale). */
   maturity?: string | null
+  /**
+   * Correzione manuale del valore, in unità di valuta (es. −3,20 €): allinea il valore
+   * calcolato a quello reale del broker (costi nascosti, arrotondamenti). Si somma al valore
+   * di mercato da `adjustmentFrom` in poi, così il prezzo continua a muoversi.
+   */
+  adjustment?: number | null
+  adjustmentFrom?: string | null
   updatedAt?: string
 }
 
@@ -105,6 +112,8 @@ export function validateInstrument(c: InvestmentConfig): string[] {
   const type = c.type ?? 'etf'
   if (c.isin && !ISIN_RE.test(c.isin)) errors.push('Codice ISIN non valido (12 caratteri, es. IE00B4L5Y983).')
   if (c.units !== null && c.units !== undefined && (!Number.isFinite(c.units) || c.units < 0)) errors.push('Numero di quote non valido.')
+  if (c.adjustment !== null && c.adjustment !== undefined && !Number.isFinite(c.adjustment)) errors.push('Correzione del valore non valida.')
+  if (c.adjustmentFrom && !/^\d{4}-\d{2}-\d{2}$/.test(c.adjustmentFrom)) errors.push('Data della correzione non valida.')
   if (type !== 'bond') {
     if (!c.ticker) errors.push(`Per ${type === 'etf' ? "l'ETF" : "l'azione"} serve il ticker per scaricare il prezzo giornaliero.`)
     return errors

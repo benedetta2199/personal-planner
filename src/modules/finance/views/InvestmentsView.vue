@@ -21,6 +21,7 @@ import InstrumentDialog from '../components/InstrumentDialog.vue'
 import PurchaseDialog from '../components/PurchaseDialog.vue'
 import PlansPanel from '../components/PlansPanel.vue'
 import EntryDialog from '../components/EntryDialog.vue'
+import ValueAdjustDialog from '../components/ValueAdjustDialog.vue'
 import { categoryColor, plainName, subcategoryColor } from '../presentation'
 
 const finance = useFinanceStore()
@@ -235,7 +236,7 @@ function emptyPosition(key: string, cfg: InvestmentConfig): Position {
   return {
     key, category, name: subcategory || category, type: cfg.type ?? 'etf', ticker: cfg.ticker || null, isin: cfg.isin || null,
     quoteName: cfg.name ?? null, status: 'pending', buys: 0, sells: 0, invested: 0, withdrawn: 0, saveback: 0, costBasis: 0, realized: 0,
-    units: null, unitsManual: false, price: null, priceIsPct: cfg.type === 'bond', priceDate: null, accrued: null,
+    units: null, unitsManual: false, adjustment: 0, price: null, priceIsPct: cfg.type === 'bond', priceDate: null, accrued: null,
     maturity: cfg.maturity ?? null, matured: false, value: 0, unrealized: null, unrealizedPct: null, dayChange: null,
     dayChangePct: null, firstDate: today, lastDate: today, closed: false,
   }
@@ -283,6 +284,13 @@ function link(p: Position) {
   creatingNew.value = false
   editing.value = p
   dialog.value = true
+}
+/** Allineamento manuale del valore a quello del broker. */
+const adjustOpen = ref(false)
+const adjusting = ref<Position | null>(null)
+function adjust(p: Position) {
+  adjusting.value = p
+  adjustOpen.value = true
 }
 const unitsText = (u: number | null) => (u === null ? '—' : new Intl.NumberFormat('it-IT', { maximumFractionDigits: u < 1 ? 6 : 4 }).format(u))
 const priceText = (p: Position) =>
@@ -418,7 +426,7 @@ const priceText = (p: Position) =>
                     </span>
                   </span>
                   <span class="pos__val">
-                    <strong class="num" :class="tone(p.unrealized)">{{ m(p.value) }}</strong>
+                    <strong class="num" :class="tone(p.unrealized)">{{ m(p.value) }}<span v-if="p.adjustment" class="pos__adj" title="Valore allineato a mano">✎</span></strong>
                     <span class="num" :class="tone(perfOf(p).abs)">
                       <template v-if="perfOf(p).pct !== null">{{ perfOf(p).abs! >= 0 ? '▲' : '▼' }} {{ formatPercent(Math.abs(perfOf(p).pct!), 2) }}</template>
                       <template v-else>{{ perfMode === 'today' ? '—' : 'al costo' }}</template>
@@ -437,6 +445,7 @@ const priceText = (p: Position) =>
                     <div v-if="feesOf(p)"><dt>Commissioni</dt><dd class="num">{{ m(feesOf(p)) }}</dd></div>
                     <div><dt>Rendimento</dt><dd class="num" :class="tone(p.unrealized)">{{ signed(p.unrealized) }}</dd></div>
                     <div><dt>Oggi</dt><dd class="num" :class="tone(p.dayChange)">{{ signed(p.dayChange) }}</dd></div>
+                    <div v-if="p.adjustment"><dt>Correzione manuale</dt><dd class="num">{{ signed(p.adjustment) }}</dd></div>
                     <div v-if="p.accrued"><dt>Rateo cedola</dt><dd class="num">{{ m(p.accrued) }}</dd></div>
                     <div v-if="p.maturity"><dt>Scadenza</dt><dd>{{ formatDate(p.maturity) }}</dd></div>
                     <div><dt>Operazioni</dt><dd>{{ p.buys }} acquisti<template v-if="p.sells"> · {{ p.sells }} vendite</template></dd></div>
@@ -446,6 +455,7 @@ const priceText = (p: Position) =>
                     <UiButton size="sm" variant="primary" icon="plus" @click="buy(p)">Acquista</UiButton>
                     <UiButton size="sm" icon="arrowUpRight" @click="sell(p)">Vendi</UiButton>
                     <UiButton size="sm" variant="ghost" icon="list" @click="showLots(p)">Vedi acquisti</UiButton>
+                    <UiButton v-if="p.status !== 'needs-data'" size="sm" variant="ghost" icon="edit" @click="adjust(p)">Allinea valore</UiButton>
                     <UiButton v-if="p.type === 'etf' && !p.closed" size="sm" variant="ghost" icon="repeat" @click="newPlan(p)">PAC</UiButton>
                     <UiButton size="sm" :variant="p.status === 'needs-data' ? 'brand' : 'secondary'" :icon="p.status === 'needs-data' ? 'plus' : 'edit'" @click="link(p)">
                       {{ p.status === 'needs-data' ? 'Configura strumento' : `Modifica dati${p.ticker ? ` (${p.ticker})` : ''}` }}
@@ -601,6 +611,7 @@ const priceText = (p: Position) =>
     </template>
 
     <EntryDialog :open="entryOpen" :operation="entryOp" @close="entryOpen = false" />
+    <ValueAdjustDialog :open="adjustOpen" :position="adjusting" @close="adjustOpen = false" />
     <PurchaseDialog :open="purchaseOpen" :mode="tradeMode" :positions="tradeMode === 'sell' ? inv.positions : buyable" :position-key="purchaseKey" @close="purchaseOpen = false" />
     <InstrumentDialog
       :open="dialog"
@@ -668,6 +679,7 @@ button.pos__row:hover { background: var(--surface-2); }
 .pos__warn { font-style: normal; color: var(--accent); }
 .pos__val { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: 0.84rem; white-space: nowrap; }
 .pos__val strong { font-size: 0.98rem; font-weight: 550; }
+.pos__adj { margin-left: 4px; font-size: 0.8em; color: var(--text-muted); font-weight: 400; }
 .pos__chev { color: var(--text-muted); transition: transform 0.15s ease; }
 .pos__item--open .pos__chev { transform: rotate(180deg); }
 .pos__detail { padding: 4px 6px 16px 62px; }

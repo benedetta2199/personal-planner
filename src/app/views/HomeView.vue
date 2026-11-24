@@ -140,7 +140,7 @@ const journalStreak = computed(() => {
           <span><strong class="num">{{ todayOpen.length }}</strong> {{ todayOpen.length === 1 ? 'impegno' : 'impegni' }} oggi</span>
           <span v-if="agenda.overdue.length" class="pill__warn">{{ agenda.overdue.length }} in ritardo</span>
         </RouterLink>
-        <RouterLink to="/abitudini" class="pill">
+        <RouterLink :to="{ name: 'habits' }" class="pill">
           <UiIcon name="repeat" :size="16" />
           <span><strong class="num">{{ habitsDone }}/{{ todayHabits.length }}</strong> abitudini</span>
         </RouterLink>
@@ -204,7 +204,7 @@ const journalStreak = computed(() => {
         <header class="tile__head">
           <span class="tile__icon" aria-hidden="true"><UiIcon name="calendar" /></span>
           <h2 id="h-agenda">Agenda</h2>
-          <RouterLink to="/agenda" class="tile__open" aria-label="Apri Agenda"><UiIcon name="arrowUpRight" :size="18" /></RouterLink>
+          <RouterLink :to="{ name: 'agenda-today' }" class="tile__open" aria-label="Apri Agenda"><UiIcon name="arrowUpRight" :size="18" /></RouterLink>
         </header>
         <div class="counters">
           <div><strong class="num">{{ todayOpen.length }}</strong><span>oggi</span></div>
@@ -234,7 +234,7 @@ const journalStreak = computed(() => {
         <header class="tile__head">
           <span class="tile__icon" aria-hidden="true"><UiIcon name="target" /></span>
           <h2 id="h-goals">Obiettivi</h2>
-          <RouterLink to="/obiettivi" class="tile__open" aria-label="Apri Obiettivi"><UiIcon name="arrowUpRight" :size="18" /></RouterLink>
+          <RouterLink :to="{ name: 'goals' }" class="tile__open" aria-label="Apri Obiettivi"><UiIcon name="arrowUpRight" :size="18" /></RouterLink>
         </header>
         <div class="counters">
           <div><strong class="num">{{ activeGoals.length }}</strong><span>attivi</span></div>
@@ -264,7 +264,7 @@ const journalStreak = computed(() => {
         <header class="tile__head">
           <span class="tile__icon" aria-hidden="true"><UiIcon name="repeat" /></span>
           <h2 id="h-habits">Abitudini</h2>
-          <RouterLink to="/abitudini" class="tile__open" aria-label="Apri Abitudini"><UiIcon name="arrowUpRight" :size="18" /></RouterLink>
+          <RouterLink :to="{ name: 'habits' }" class="tile__open" aria-label="Apri Abitudini"><UiIcon name="arrowUpRight" :size="18" /></RouterLink>
         </header>
         <div class="habits">
           <div class="ring" role="img" :aria-label="`${habitsDone} abitudini su ${todayHabits.length} fatte oggi`">

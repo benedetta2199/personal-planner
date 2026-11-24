@@ -1,25 +1,8 @@
-/** Moduli Obiettivi, Abitudini e Diario: una sola pagina ciascuno, dati salvati nel browser. */
+/**
+ * Modulo Diario: una sola pagina, dati salvati nel browser.
+ * Obiettivi e Abitudini sono sotto-sezioni del Planner (vedi `modules/agenda`).
+ */
 import type { AppModule } from '@/app/modules'
-
-export const goalsModule: AppModule = {
-  id: 'obiettivi',
-  label: 'Obiettivi',
-  icon: 'target',
-  description: 'Obiettivi a lungo termine e milestone',
-  path: '/obiettivi',
-  status: 'active',
-  routes: [{ path: '/obiettivi', name: 'goals', component: () => import('./goals/GoalsView.vue'), meta: { title: 'Obiettivi' } }],
-}
-
-export const habitsModule: AppModule = {
-  id: 'abitudini',
-  label: 'Abitudini',
-  icon: 'repeat',
-  description: 'Tracciamento quotidiano delle abitudini',
-  path: '/abitudini',
-  status: 'active',
-  routes: [{ path: '/abitudini', name: 'habits', component: () => import('./habits/HabitsView.vue'), meta: { title: 'Abitudini' } }],
-}
 
 export const journalModule: AppModule = {
   id: 'diario',
