@@ -359,7 +359,12 @@ function readRow(provider: StatementProvider, row: unknown[], header: unknown[],
   const name = text(cell(row, header, 'nome'))
   const desc = text(cell(row, header, 'descrizione'))
   const type = normalizeKey(get(row, 'kind'))
-  const kind: StatementKind = type.includes('ricarica') || type.includes('prelievo') || type.includes('trasferiment') ? 'transfer' : amount < 0 ? 'expense' : 'income'
+  const kind: StatementKind =
+    type.includes('ricarica') || type.includes('prelievo') || type.includes('trasferiment') || isSatispayTopUp(`${name} ${desc}`, amount)
+      ? 'transfer'
+      : amount < 0
+        ? 'expense'
+        : 'income'
   return {
     date,
     signed: amount,
@@ -370,6 +375,11 @@ function readRow(provider: StatementProvider, row: unknown[], header: unknown[],
     status,
     id: text(get(row, 'id')),
   }
+}
+
+/** Ricarica di Satispay dal conto bancario: entrata con «Ricarica Satispay» nella descrizione. */
+function isSatispayTopUp(description: string, signed: number): boolean {
+  return signed > 0 && /ricarica\s+satispay/i.test(description)
 }
 
 // ---------------------------------------------------------------------------
@@ -446,6 +456,7 @@ export function ledgerSides(operations: Operation[]): LedgerSide[] {
   return sides
 }
 
+const signedAmount = (s: StatementRow) => (s.direction === 'out' ? -s.amount : s.amount)
 const sideKey = (s: LedgerSide) => `${s.op.id}|${s.direction}`
 export const statementKey = (s: StatementRow) => `${s.provider}|${s.id}`
 export const itemKey = (item: Pick<ReconciliationItem, 'statements' | 'sides'>) =>
@@ -601,8 +612,14 @@ export interface EntrySuggestion {
  * Voce da aggiungere al foglio per una riga dell'estratto mancante. Categoria, tipologia e
  * (per i trasferimenti) l'altro conto vengono copiati dal movimento passato più recente con
  * descrizione simile, se esiste.
+ *
+ * Eccezione: una ricarica di Satispay è sempre un trasferimento dal conto bancario
+ * (`bankAccount`, di default «Conto») a Satispay, senza descrizione.
  */
-export function suggestEntry(s: StatementRow, operations: Operation[]): EntrySuggestion {
+export function suggestEntry(s: StatementRow, operations: Operation[], options: { bankAccount?: string } = {}): EntrySuggestion {
+  if (s.provider === 'satispay' && isSatispayTopUp(s.description, signedAmount(s))) {
+    return { kind: 'transfer', account: options.bankAccount || 'Conto', toAccount: s.account, category: '', subcategory: '', description: '', date: s.date, amount: s.amount }
+  }
   const similar = [...operations]
     .reverse()
     .find((op) => descriptionsMatch(s.description, op.description) && (op.kind === 'transfer' ? s.kind === 'transfer' : op.kind === (s.direction === 'in' ? 'income' : 'expense') || s.kind === 'transfer'))

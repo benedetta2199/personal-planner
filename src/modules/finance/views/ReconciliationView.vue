@@ -169,10 +169,12 @@ function removeFromSheet(item: ReconciliationItem) {
 }
 
 // ---- Finestra di inserimento/modifica -------------------------------------------
+/** Conto bancario da cui partono le ricariche Satispay: il conto «Conto» (anche se rinominato, tramite alias). */
+const bankAccount = computed(() => accountChoices.value.find((a) => [a.name, ...a.aliases].some((n) => n.trim().toLowerCase() === 'conto'))?.name ?? 'Conto')
 const dialog = reactive<{ open: boolean; operation: Operation | null; prefill: EntryPrefill | null }>({ open: false, operation: null, prefill: null })
 function addFromStatement(item: ReconciliationItem) {
   const s = item.statements[0]
-  const suggestion = suggestEntry(s, store.operations)
+  const suggestion = suggestEntry(s, store.operations, { bankAccount: bankAccount.value })
   dialog.operation = null
   dialog.prefill = { ...suggestion, toAccount: suggestion.toAccount || undefined, account: suggestion.account || undefined }
   dialog.open = true

@@ -189,4 +189,22 @@ describe('confronto con il foglio', () => {
     expect(suggestEntry(row({ date: '2026-02-01', amount: 200, kind: 'transfer', description: 'A EUR Conto vacanze' }), ops)).toMatchObject({ kind: 'transfer', account: 'Revolut', toAccount: 'Vacanze' })
     expect(suggestEntry(row({ date: '2026-02-01', amount: 200, description: 'Mai visto' }), ops)).toMatchObject({ kind: 'expense', category: '', expenseType: 'additional' })
   })
+
+  it('una ricarica Satispay diventa un trasferimento da «Conto» a Satispay senza descrizione', () => {
+    const { records } = parseStatementRows(
+      [
+        ['Data', 'Nome', 'Descrizione', 'Importo', 'Tipo', 'Stato', 'Disponibilità', 'Disponibilità dopo la transazione'],
+        ['2026-03-02', 'Ricarica Satispay', '(IT*****70)', '13,70', 'Accredito', '✅ Approvato', '0', '13,70'],
+        ['2026-03-03', 'Bar', 'Ricarica Satispay', '-2', 'Pagamento', '✅ Approvato', '13,70', '11,70'],
+      ],
+      'satispay',
+      'Satispay.xlsx',
+    )
+    expect(records.map((r) => r.kind)).toEqual(['transfer', 'expense'])
+    const history = [op({ kind: 'expense', date: '2026-01-01', amount: 100, description: 'Ricarica Satispay', category: 'Altro' })]
+    expect(suggestEntry(records[0], history)).toMatchObject({ kind: 'transfer', account: 'Conto', toAccount: 'Satispay', description: '', amount: 1370 })
+    expect(suggestEntry(records[0], history, { bankAccount: 'Conto corrente' })).toMatchObject({ account: 'Conto corrente' })
+    // Un'uscita con la stessa dicitura non è una ricarica.
+    expect(suggestEntry(records[1], history).kind).toBe('expense')
+  })
 })
