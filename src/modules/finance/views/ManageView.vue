@@ -11,6 +11,7 @@ import { useFinanceStore } from '../store/financeStore'
 import { useLedgerStore } from '../store/ledgerStore'
 import AccountDialog from '../components/AccountDialog.vue'
 import InstrumentDialog from '../components/InstrumentDialog.vue'
+import DuplicatesPanel from '../components/DuplicatesPanel.vue'
 import { useInvestmentStore } from '../store/investmentStore'
 import { ACCOUNT_TYPE_LABEL, CARD_THEME_META, subcategoryColor } from '../presentation'
 import { categoryIcon, guessCategoryEmoji, leadingEmoji } from '../categoryIcons'
@@ -494,6 +495,9 @@ L'operazione non si può annullare.`,
         </label>
         <UiButton variant="ghost" icon="trash" class="danger" @click="resetLedger">Ripristina predefiniti</UiButton>
       </div>
+
+      <h3 class="data__sub">Righe duplicate</h3>
+      <DuplicatesPanel />
     </section>
 
     <AccountDialog :open="accDialog" :account="accEditing" :preset-name="accPreset" @close="accDialog = false" />
@@ -574,6 +578,7 @@ L'operazione non si può annullare.`,
 .chip:hover { border-style: solid; border-color: var(--ink); }
 .note { margin-top: 14px; }
 .data__actions { margin-top: 16px; }
+.data__sub { margin: 28px 0 12px; padding-top: 20px; border-top: 1px solid var(--border); font-size: 1rem; font-weight: 500; }
 .file span {
   display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 18px; border-radius: 999px;
   border: 1px solid var(--border-strong); cursor: pointer; font-weight: 500; background: var(--surface);
