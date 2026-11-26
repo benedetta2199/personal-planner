@@ -4,7 +4,9 @@ import UiBadge from '@/core/ui/UiBadge.vue'
 import UiButton from '@/core/ui/UiButton.vue'
 import UiCard from '@/core/ui/UiCard.vue'
 import UiIcon from '@/core/ui/UiIcon.vue'
-import { compareNetWithSalary, CORE_FIELD_COLUMNS, PAYROLL_DETAIL_COLUMNS, parseAmount, parseDecimal, type PayrollRecord, type SalaryMatch } from '../domain'
+import { compareNetWithSalary, CORE_FIELD_COLUMNS, isSalaryOperation, normalizeKey, PAYROLL_DETAIL_COLUMNS, parseAmount, parseDecimal, type PayrollRecord, type SalaryMatch } from '../domain'
+import EntryDialog from '../components/EntryDialog.vue'
+import { useLedgerStore, type EntryPrefill } from '../store/ledgerStore'
 import { formatDate, formatMoney } from '@/core/utils/format'
 import { readPayrollPdf } from '../data/localFiles'
 import {
@@ -42,6 +44,7 @@ type SheetCheck =
 type PayrollValueField = 'basePay' | 'grossPay' | 'totalDeductions' | 'netPay' | 'hoursWorked' | 'inpsTaxable' | 'irpefTaxable' | 'irpefPaid' | 'vacationRemaining' | 'permitsRemaining'
 
 const store = useFinanceStore()
+const ledger = useLedgerStore()
 const drafts = ref<PayrollDraft[]>([])
 const readError = ref('')
 const readWarnings = ref<string[]>([])
@@ -91,6 +94,35 @@ function salaryTone(match: SalaryMatch) {
 
 function salaryLabel(match: SalaryMatch) {
   return { match: 'Coincide', mismatch: 'Importo diverso', missing: 'Stipendio non trovato', unknown: 'Da verificare' }[match.status]
+}
+
+// ---- Stipendio non trovato: aggiunta diretta della voce al bilancio -----------
+const entryDialog = ref<{ open: boolean; prefill: EntryPrefill | null }>({ open: false, prefill: null })
+
+/**
+ * Entrata «Stipendio» proposta dal cedolino: netto in busta, accredito nel mese seguente
+ * nello stesso giorno e sullo stesso conto dell'ultimo stipendio registrato.
+ */
+function salaryPrefill(record: PayrollRecord): EntryPrefill {
+  const last = store.dataset.operations.filter(isSalaryOperation).sort((a, b) => b.date.localeCompare(a.date))[0]
+  const category =
+    ledger.state.config.categories.find((c) => c.kind === 'income' && normalizeKey(c.name).includes('stipendio'))?.name ?? last?.category ?? 'Stipendio'
+  const year = record.month === 12 ? record.year! + 1 : record.year!
+  const month = record.month === 12 ? 1 : record.month! + 1
+  const lastDay = new Date(year, month, 0).getDate()
+  const day = Math.min(last ? Number(last.date.slice(8, 10)) || 27 : 27, lastDay)
+  return {
+    kind: 'income',
+    date: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+    account: last?.account,
+    category,
+    subcategory: last?.category === category ? last.subcategory || undefined : undefined,
+    description: `Stipendio ${draftTitle({ record } as PayrollDraft).toLowerCase()}`,
+    amount: record.netPay ?? undefined,
+  }
+}
+function addSalaryEntry(record: PayrollRecord) {
+  entryDialog.value = { open: true, prefill: salaryPrefill(record) }
 }
 
 /** Su schermi stretti l'anteprima è sotto il modulo, minimizzabile e chiusa di default. */
@@ -483,6 +515,11 @@ function onCardLeave(el: Element, done: () => void) {
             Nessuna entrata in categoria «Stipendio» tra {{ formatDate(salaryMatch(draft.record).from!) }} e la fine del mese successivo.
             <template v-if="!store.dataset.operations.length"> Il foglio delle finanze non è ancora caricato.</template>
           </p>
+          <div class="salary__add">
+            <UiButton size="sm" variant="primary" icon="plus" @click="addSalaryEntry(draft.record)">
+              Aggiungi lo stipendio al bilancio ({{ formatMoney(draft.record.netPay, 'EUR') }})
+            </UiButton>
+          </div>
         </template>
         <template v-else>
           <dl class="salary__grid">
@@ -498,6 +535,10 @@ function onCardLeave(el: Element, done: () => void) {
               Altra entrata Stipendio: {{ formatDate(op.date.slice(0, 10)) }} · {{ formatMoney(op.amount, op.currency) }}<template v-if="op.description"> · {{ op.description }}</template>
             </li>
           </ul>
+          <div v-if="salaryMatch(draft.record).status === 'mismatch'" class="salary__add">
+            <span class="muted small">L'entrata trovata è di un altro mese?</span>
+            <UiButton size="sm" icon="plus" @click="addSalaryEntry(draft.record)">Aggiungi come nuova entrata</UiButton>
+          </div>
         </template>
       </section>
       <ul v-if="draft.warnings.length" class="warnings">
@@ -575,6 +616,8 @@ function onCardLeave(el: Element, done: () => void) {
     <p v-if="drafts.length" class="muted small">
       {{ readyCount }} di {{ drafts.length }} cedolini pronti. Il PDF viene inviato solo al tuo Google Drive al momento del salvataggio.
     </p>
+
+    <EntryDialog :open="entryDialog.open" :prefill="entryDialog.prefill" @close="entryDialog.open = false" />
   </div>
 </template>
 
@@ -667,6 +710,7 @@ function onCardLeave(el: Element, done: () => void) {
 .salary__grid dd { margin: 2px 0 0; font-weight: 650; font-variant-numeric: tabular-nums; }
 .salary__diff { color: var(--negative); }
 .salary__others { margin: 6px 0 0; padding-left: 18px; }
+.salary__add { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; margin-top: var(--space-3); }
 .details { margin-top: var(--space-4); }
 .details summary { cursor: pointer; }
 .warnings { margin: var(--space-3) 0 0; padding-left: 20px; color: var(--text-secondary); font-size: 0.85rem; }
