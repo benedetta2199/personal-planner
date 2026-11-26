@@ -1,9 +1,18 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import UiDialog from '@/core/ui/UiDialog.vue'
 import UiSegmented from '@/core/ui/UiSegmented.vue'
 import UiIcon from '@/core/ui/UiIcon.vue'
 import { formatMoney, todayIso } from '@/core/utils/format'
-import { daysInMonth, toBase, type FinanceDataset, type Operation } from '../domain'
+import UiMultiSelect, { type SelectOption } from '@/core/ui/UiMultiSelect.vue'
+import UiButton from '@/core/ui/UiButton.vue'
+import {
+  FLOW_TYPES, activeFilterCount, daysInMonth, defaultFilters, matchesFilters, splitSubKey, subKey, toBase,
+  type FinanceDataset, type FinanceFilters, type FlowType, type Operation,
+} from '../domain'
+import { CARD_THEME_META, FLOW_META } from '../presentation'
+import { useLedgerStore } from '../store/ledgerStore'
+import { categoryIcon } from '../categoryIcons'
 import TxRow from './TxRow.vue'
 import MonthSwitcher from './MonthSwitcher.vue'
 
@@ -21,7 +30,77 @@ watch(view, (v) => v === 'list' && (selectedDay.value = null))
 
 const today = todayIso()
 const cur = computed(() => props.dataset.baseCurrency)
-const visible = computed(() => (kind.value === 'all' ? props.operations : props.operations.filter((o) => o.kind === kind.value)))
+
+// ---- Filtri (locali al pannello: non toccano i filtri globali delle altre pagine) ----
+const showFilters = ref(false)
+/** Su mobile i filtri si aprono in una finestra invece che in linea. */
+const mobileMedia = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(max-width: 640px)') : null
+const isMobile = ref(mobileMedia?.matches ?? false)
+const onMobileChange = (e: MediaQueryListEvent) => (isMobile.value = e.matches)
+mobileMedia?.addEventListener('change', onMobileChange)
+onBeforeUnmount(() => mobileMedia?.removeEventListener('change', onMobileChange))
+const filters = ref<FinanceFilters>({ ...defaultFilters(), period: 'all' })
+const filterCount = computed(() => activeFilterCount(filters.value))
+function resetFilters() {
+  filters.value = { ...defaultFilters(), period: 'all' }
+}
+
+const ledger = useLedgerStore()
+const allOps = computed(() => props.dataset.operations)
+const accountOptions = computed<SelectOption[]>(() =>
+  props.dataset.accounts.map((a) => ({
+    value: a.name,
+    label: a.name,
+    group: a.type === 'investment' ? 'Investimenti' : 'Liquidità',
+    swatch: accountCardBg(a.name),
+  })),
+)
+/** Colore del pallino: quello della carta del conto (come nel modulo di inserimento). */
+function accountCardBg(name: string) {
+  const cfg = ledger.state.config.accounts.find((a) => a.name === name)
+  return cfg ? CARD_THEME_META[cfg.cardTheme].bg : 'var(--surface-2)'
+}
+const flowOptions: SelectOption[] = FLOW_TYPES.map((t) => ({ value: t, label: FLOW_META[t].label, swatch: FLOW_META[t].swatch }))
+const categoryOptions = computed<SelectOption[]>(() => {
+  /** Tipo della categoria (entrata/uscita) dedotto dai movimenti, per scegliere l'icona giusta. */
+  const kinds = new Map<string, 'income' | 'expense'>()
+  for (const o of allOps.value) if (o.category && !kinds.has(o.category) && o.kind !== 'transfer') kinds.set(o.category, o.kind)
+  return [...new Set(allOps.value.map((o) => o.category).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'it'))
+    .map((c) => ({ value: c, label: c, emoji: categoryIcon(ledger.state.config, c, kinds.get(c)) }))
+})
+const subcategoryOptions = computed<SelectOption[]>(() => {
+  const keys = new Set<string>()
+  for (const o of allOps.value) if (o.subcategory) keys.add(subKey(o.category, o.subcategory))
+  return [...keys]
+    .map((k) => ({ key: k, ...splitSubKey(k) }))
+    .filter((s) => !filters.value.categories.length || filters.value.categories.includes(s.category))
+    .sort((a, b) => a.category.localeCompare(b.category, 'it') || a.subcategory.localeCompare(b.subcategory, 'it'))
+    .map((s) => ({ value: s.key, label: s.subcategory, group: s.category }))
+})
+const currencyOptions = computed<SelectOption[]>(() => {
+  const set = new Set<string>()
+  for (const o of allOps.value) {
+    set.add(o.currency)
+    if (o.kind === 'transfer') set.add(o.toCurrency)
+  }
+  return [...set].sort().map((c) => ({ value: c, label: c }))
+})
+const flowTypes = computed({
+  get: () => filters.value.flowTypes as string[],
+  set: (v: string[]) => (filters.value.flowTypes = v as FlowType[]),
+})
+// Se cambiano le categorie scelte, scarta le sotto-categorie non più compatibili.
+watch(
+  () => filters.value.categories,
+  (cats) => {
+    if (cats.length) filters.value.subcategories = filters.value.subcategories.filter((k) => cats.includes(splitSubKey(k).category))
+  },
+)
+
+const visible = computed(() =>
+  props.operations.filter((o) => (kind.value === 'all' || o.kind === kind.value) && matchesFilters(o, filters.value, {})),
+)
 
 const dayFmt = new Intl.DateTimeFormat('it-IT', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' })
 function dayLabel(iso: string) {
@@ -100,7 +179,48 @@ const compact = (cents: number) => new Intl.NumberFormat('it-IT', { minimumFract
           { value: 'transfer', label: 'Trasferimenti' },
         ]"
       />
+      <button
+        type="button"
+        class="tp__filterbtn"
+        :class="{ on: showFilters || filterCount }"
+        :aria-expanded="showFilters"
+        aria-controls="tp-filters"
+        aria-label="Filtro"
+        title="Filtro"
+        @click="showFilters = !showFilters"
+      >
+        <UiIcon name="sliders" :size="17" />
+        <span v-if="filterCount" class="tp__count">{{ filterCount }}</span>
+      </button>
     </div>
+    <component
+      :is="isMobile ? UiDialog : 'div'"
+      v-if="showFilters || isMobile"
+      v-bind="isMobile ? { open: showFilters, title: 'Filtra transazioni', width: 480 } : {}"
+      @close="showFilters = false"
+    >
+    <div id="tp-filters" class="tp__filters" :class="{ 'tp__filters--sheet': isMobile }" role="search" aria-label="Filtra transazioni">
+      <label class="tp__search">
+        <span class="tp__label">Cerca</span>
+        <span class="tp__search-wrap">
+          <UiIcon name="search" :size="15" class="tp__search-icon" />
+          <input v-model.trim="filters.search" class="input" type="search" placeholder="Descrizione, categoria, conto…" />
+        </span>
+      </label>
+      <div class="tp__fgrid">
+        <UiMultiSelect v-model="filters.accounts" label="Conto" :options="accountOptions" placeholder="Tutti i conti" />
+        <UiMultiSelect v-model="flowTypes" label="Tipologia" :options="flowOptions" placeholder="Tutte" />
+        <UiMultiSelect v-model="filters.categories" label="Categoria" :options="categoryOptions" placeholder="Tutte" />
+        <UiMultiSelect v-model="filters.subcategories" label="Sotto-categoria" :options="subcategoryOptions" placeholder="Tutte" />
+        <UiMultiSelect v-model="filters.currencies" label="Valuta" :options="currencyOptions" placeholder="Tutte" />
+      </div>
+      <div class="tp__factions">
+        <span class="muted small">{{ visible.length }} di {{ operations.length }} movimenti</span>
+        <UiButton variant="ghost" size="sm" icon="close" :disabled="!filterCount" @click="resetFilters">Reimposta</UiButton>
+      </div>
+      <UiButton v-if="isMobile" class="tp__apply" @click="showFilters = false">Mostra {{ visible.length }} movimenti</UiButton>
+    </div>
+    </component>
     <div class="tp__month">
       <MonthSwitcher v-model="month" class="tp__ms" />
       <span v-if="monthNet" class="tp__monthnet num" :class="monthNet > 0 ? 'pos' : 'neg'">{{ netText(monthNet) }}</span>
@@ -108,7 +228,7 @@ const compact = (cents: number) => new Intl.NumberFormat('it-IT', { minimumFract
 
     <!-- Elenco ---------------------------------------------------------->
     <div v-if="view === 'list'" class="tp__list">
-      <p v-if="!groups.length" class="muted small tp__empty">Nessun movimento in questo mese.</p>
+      <p v-if="!groups.length" class="muted small tp__empty">{{ filterCount || kind !== 'all' ? 'Nessun movimento corrisponde ai filtri.' : 'Nessun movimento in questo mese.' }}</p>
       <section v-for="g in groups" :key="g.date" class="tp__day">
         <header class="tp__dayhead">
           <span>{{ dayLabel(g.date) }}</span>
@@ -174,6 +294,30 @@ const compact = (cents: number) => new Intl.NumberFormat('it-IT', { minimumFract
   padding: 6px 14px; border-radius: 999px; font-size: 0.85rem; color: var(--text-secondary);
 }
 .tp__switch button.on { background: var(--ink); color: var(--brand); }
+/* Pulsante filtri: solo icona, con il numero dei filtri attivi nell'angolo. */
+.tp__filterbtn {
+  position: relative; display: inline-grid; place-items: center; border: 0; cursor: pointer;
+  width: 36px; height: 36px; border-radius: 999px;
+  background: var(--surface-2); color: var(--text-secondary);
+}
+.tp__filterbtn:hover { color: var(--text-primary); }
+.tp__filterbtn.on { background: var(--ink); color: var(--brand); }
+.tp__count {
+  position: absolute; top: -4px; right: -4px;
+  background: var(--accent); color: var(--on-accent); border-radius: 999px; font-size: 0.72rem; padding: 0 6px; line-height: 1.5;
+}
+.tp__filters { display: flex; flex-direction: column; gap: 12px; padding: 14px; border-radius: 18px; background: var(--surface-2); }
+.tp__label { font-size: 0.75rem; color: var(--text-muted); font-weight: 500; }
+.tp__search { display: flex; flex-direction: column; gap: 3px; }
+.tp__search-wrap { position: relative; display: flex; }
+.tp__search-wrap .input { width: 100%; padding-left: 30px; }
+.tp__search-icon { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: var(--text-muted); }
+.tp__fgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.tp__factions { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+/* Nella finestra mobile: niente riquadro, controlli in colonna. */
+.tp__filters--sheet { padding: 0; background: none; border-radius: 0; }
+.tp__filters--sheet .tp__fgrid { grid-template-columns: minmax(0, 1fr); }
+.tp__apply { width: 100%; justify-content: center; }
 .tp__empty { padding: 28px 0; text-align: center; }
 .tp__list { display: flex; flex-direction: column; gap: 14px; max-height: 640px; overflow-y: auto; padding-right: 4px; }
 .tp__day ul { list-style: none; margin: 0; padding: 0; }
@@ -205,5 +349,12 @@ const compact = (cents: number) => new Intl.NumberFormat('it-IT', { minimumFract
   .tp__switch span { display: none; }
   .cal { gap: 3px; }
   .cal__cell { min-height: 56px; padding: 4px; border-radius: 10px; font-size: 0.62rem; }
+}
+/* Stesso breakpoint del layout mobile dell'app (App.vue). */
+@media (max-width: 640px) {
+  /* Riga 1: vista + icona filtri; riga 2: tipi di movimento a tutta larghezza. */
+  .tp__filterbtn { margin-left: auto; }
+  .tp__kinds { order: 3; flex-basis: 100%; margin-left: 0; display: flex; }
+  .tp__kinds :deep(.seg__opt) { flex: 1; padding: 6px 8px; }
 }
 </style>

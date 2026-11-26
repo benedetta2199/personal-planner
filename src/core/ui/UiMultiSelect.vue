@@ -6,7 +6,10 @@ export interface SelectOption {
   value: string
   label: string
   group?: string
+  /** Nome di una variabile CSS (`--x`) oppure un valore `background` qualsiasi (colore, gradiente). */
   swatch?: string
+  /** Emoji mostrata prima dell'etichetta (es. icona della categoria). */
+  emoji?: string
 }
 
 const props = defineProps<{ label: string; options: SelectOption[]; placeholder?: string }>()
@@ -93,7 +96,8 @@ onBeforeUnmount(() => {
           <div v-if="group" class="ms__group">{{ group }}</div>
           <label v-for="o in items" :key="o.value" class="ms__opt">
             <input type="checkbox" :checked="model.includes(o.value)" @change="toggle(o.value)" />
-            <span v-if="o.swatch" class="ms__swatch" :style="{ background: `var(${o.swatch})` }" aria-hidden="true" />
+            <span v-if="o.swatch" class="ms__swatch" :style="{ background: o.swatch.startsWith('--') ? `var(${o.swatch})` : o.swatch }" aria-hidden="true" />
+            <span v-if="o.emoji" class="ms__emoji" aria-hidden="true">{{ o.emoji }}</span>
             <span class="ms__text">{{ o.label }}</span>
           </label>
         </template>
@@ -148,6 +152,10 @@ onBeforeUnmount(() => {
 .ms__opt:hover { background: var(--surface-2); }
 .ms__opt input { accent-color: var(--accent); margin: 0; }
 .ms__swatch { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+.ms__emoji {
+  display: inline-grid; place-items: center; width: 18px; flex-shrink: 0; font-size: 15px; line-height: 1;
+  font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
+}
 .ms__text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ms__none { padding: 8px 12px; }
 .ms__foot { display: flex; justify-content: space-between; border-top: 1px solid var(--border); padding: 6px 8px; }
