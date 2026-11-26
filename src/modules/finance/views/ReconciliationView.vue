@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { confirmDialog } from '@/core/ui/confirm'
 import { computed, reactive, ref, watch } from 'vue'
 import UiAlert from '@/core/ui/UiAlert.vue'
 import UiBadge from '@/core/ui/UiBadge.vue'
@@ -8,6 +9,8 @@ import UiSegmented from '@/core/ui/UiSegmented.vue'
 import { formatDate, formatDateTime, formatMoney } from '@/core/utils/format'
 import { readJson, writeJson } from '@/core/utils/storage'
 import {
+  mergeableInterestRows,
+  mergeInterestRows,
   reconcileStatements,
   suggestAccount,
   suggestEntry,
@@ -64,6 +67,9 @@ async function onFiles(event: Event) {
   }
 }
 const removeFile = (name: string) => (files.value = files.value.filter((f) => f.name !== name))
+/** Somma per mese le righe con «Interessi» nella descrizione in un'unica riga. */
+const mergeInterests = (name: string) =>
+  (files.value = files.value.map((f) => (f.name === name ? { ...f, rows: mergeInterestRows(f.rows) } : f)))
 
 // ---- Associazione conto dell'estratto → conto dell'app ----------------------------
 const IGNORE = ''
@@ -215,7 +221,17 @@ function edit(op: Operation) {
             </p>
             <p v-if="f.issues.length > 5" class="muted small">Altre {{ f.issues.length - 5 }} segnalazioni.</p>
           </div>
-          <UiButton size="sm" variant="ghost" icon="close" @click="removeFile(f.name)">Rimuovi</UiButton>
+          <div class="files__actions">
+            <UiButton
+              v-if="mergeableInterestRows(f.rows)"
+              size="sm"
+              :title="`Somma per mese le ${mergeableInterestRows(f.rows)} righe con «Interessi» nella descrizione`"
+              @click="mergeInterests(f.name)"
+            >
+              Unisci interessi per mese
+            </UiButton>
+            <UiButton size="sm" variant="ghost" icon="close" @click="removeFile(f.name)">Rimuovi</UiButton>
+          </div>
         </li>
       </ul>
 
@@ -339,6 +355,7 @@ function edit(op: Operation) {
 .files { list-style: none; margin: var(--space-3) 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .files__item { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); overflow-wrap: anywhere; }
 .files__item p { margin: 3px 0 0; }
+.files__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; flex-shrink: 0; }
 .map { margin-top: var(--space-3); display: flex; flex-direction: column; gap: 8px; }
 .map__row { display: flex; align-items: center; gap: 12px; }
 .map__row > span { min-width: 140px; font-weight: 550; }

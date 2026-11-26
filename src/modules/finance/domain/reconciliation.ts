@@ -255,6 +255,53 @@ export function parseStatementRows(rows: unknown[][], provider: StatementProvide
   return { records, issues }
 }
 
+const INTEREST_DESCRIPTION = /interessi/i
+const interestGroupKey = (r: StatementRow) => `${r.account}|${r.currency}|${r.direction}|${r.date.slice(0, 7)}`
+
+/** Numero di righe con «Interessi» nella descrizione che verrebbero unite da `mergeInterestRows`. */
+export function mergeableInterestRows(rows: StatementRow[]): number {
+  const counts = new Map<string, number>()
+  for (const r of rows) if (INTEREST_DESCRIPTION.test(r.description)) counts.set(interestGroupKey(r), (counts.get(interestGroupKey(r)) ?? 0) + 1)
+  return [...counts.values()].filter((n) => n > 1).reduce((s, n) => s + n, 0)
+}
+
+/**
+ * Somma in un'unica riga per mese (e per conto, valuta e verso) tutte le righe con
+ * «Interessi» nella descrizione, alla data dell'ultimo accredito del mese.
+ */
+export function mergeInterestRows(rows: StatementRow[]): StatementRow[] {
+  const groups = new Map<string, StatementRow[]>()
+  const rest: StatementRow[] = []
+  for (const r of rows) {
+    if (!INTEREST_DESCRIPTION.test(r.description)) {
+      rest.push(r)
+      continue
+    }
+    const key = interestGroupKey(r)
+    groups.set(key, [...(groups.get(key) ?? []), r])
+  }
+  const merged: StatementRow[] = []
+  for (const [key, group] of groups) {
+    if (group.length === 1) {
+      merged.push(group[0])
+      continue
+    }
+    const last = group.reduce((a, b) => (b.date > a.date ? b : a))
+    const total = group.reduce((s, r) => s + r.amount, 0)
+    const month = last.date.slice(0, 7)
+    merged.push({
+      ...last,
+      id: `${last.provider}-interessi-uniti-${normalizeKey(key)}`,
+      row: Math.min(...group.map((r) => r.row)),
+      amount: total,
+      kind: last.direction === 'in' ? 'income' : last.kind,
+      description: `Interessi ${last.account} ${month} (${group.length} accrediti)`,
+      interest: true,
+    })
+  }
+  return [...rest, ...merged].sort((a, b) => a.date.localeCompare(b.date) || a.row - b.row)
+}
+
 function toRecord(provider: StatementProvider, r: RawStatement, id: string, interest = false): StatementRow {
   return {
     id,
@@ -299,7 +346,7 @@ function readRow(provider: StatementProvider, row: unknown[], header: unknown[],
       return { date, signed, kind: 'income', account: REVOLUT_SAVINGS_ACCOUNT, currency, description, status, id: '', interest: true }
     }
     let kind: StatementKind
-    if (type.includes('ricarica') || type.includes('topup') || type.includes('cambiavaluta') || type.includes('exchange') || REVOLUT_POCKET.test(description)) kind = 'transfer'
+    if (type.includes('ricarica') || type.includes('topup') || type.includes('cambiavaluta') || type.includes('exchange') || /ricarica/i.test(description) || REVOLUT_POCKET.test(description)) kind = 'transfer'
     else if (isInterest) kind = 'income'
     else if (type.includes('rimborso') || type.includes('refund')) kind = 'income'
     else kind = signed < 0 ? 'expense' : 'income'

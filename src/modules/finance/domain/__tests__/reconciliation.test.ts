@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseStatementRows, reconcileStatements, suggestAccount, suggestEntry, type StatementRow } from '../reconciliation.js'
+import { mergeableInterestRows, mergeInterestRows, parseStatementRows, reconcileStatements, suggestAccount, suggestEntry, type StatementRow } from '../reconciliation.js'
 import type { Operation } from '../types.js'
 
 const REVOLUT_HEADER = ['Tipo', 'Prodotto', 'Data di inizio', 'Data di completamento', 'Descrizione', 'Importo', 'Costo', 'Valuta', 'State', 'Saldo']
@@ -37,6 +37,30 @@ describe('lettura degli estratti', () => {
       ['2026-01-03', 'expense', 'out', 597],
       ['2026-01-07', 'transfer', 'out', 5210],
       ['2026-01-09', 'transfer', 'in', 20000],
+    ])
+  })
+
+  it('Revolut: «Ricarica» nella descrizione è un trasferimento', () => {
+    const { records } = parseStatementRows(
+      [REVOLUT_HEADER, ['Pagamento', 'Attuale', '2026-01-09', '2026-01-09', 'Ricarica Satispay', '-20', '0', 'EUR', 'COMPLETATO', '0']],
+      'revolut',
+      'r.csv',
+    )
+    expect(records.map((r) => [r.kind, r.direction, r.amount])).toEqual([['transfer', 'out', 2000]])
+  })
+
+  it('unisci interessi: righe con «Interessi» sommate per mese', () => {
+    const rows = [
+      row({ date: '2026-04-02', amount: 10, kind: 'income', direction: 'in', description: 'Interessi giornalieri' }),
+      row({ date: '2026-04-20', amount: 5, kind: 'income', direction: 'in', description: 'interessi' }),
+      row({ date: '2026-05-01', amount: 7, kind: 'income', direction: 'in', description: 'Interessi giornalieri' }),
+      row({ date: '2026-04-10', amount: 300, description: 'Conad' }),
+    ]
+    expect(mergeableInterestRows(rows)).toBe(2)
+    expect(mergeInterestRows(rows).map((r) => [r.date, r.amount, r.description])).toEqual([
+      ['2026-04-10', 300, 'Conad'],
+      ['2026-04-20', 15, 'Interessi Revolut 2026-04 (2 accrediti)'],
+      ['2026-05-01', 7, 'Interessi giornalieri'],
     ])
   })
 
