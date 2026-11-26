@@ -11,6 +11,7 @@ import { useFinanceStore } from '../store/financeStore'
 import { LedgerError, useLedgerStore, type EntryDraft, type EntryPrefill } from '../store/ledgerStore'
 import { CARD_THEME_META, FLOW_META, plainName, subcategoryColor } from '../presentation'
 import { categoryIcon } from '../categoryIcons'
+import { evaluateAmount, isAmountExpression } from '../amountExpression'
 
 const props = defineProps<{
   open: boolean
@@ -161,12 +162,40 @@ watch(
   },
 )
 
-function parseAmount(text: string): number {
-  const t = text.trim().replace(/\s|€/g, '')
-  // "1.234,56" → 1234.56 ; "12.5" → 12.5 ; "12,5" → 12.5
-  const normalized = t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t
-  const v = Number(normalized)
-  return Number.isFinite(v) ? Math.round(v * 100) : NaN
+// L'importo può essere un'espressione (es. "12,50 + 3 * 2"): si mostra l'anteprima del risultato.
+const parseAmount = evaluateAmount
+const amountInput = ref<HTMLInputElement | null>(null)
+const amountIsExpr = computed(() => isAmountExpression(form.amount))
+const amountPreview = computed(() => {
+  if (!amountIsExpr.value) return null
+  const c = evaluateAmount(form.amount)
+  return Number.isNaN(c) ? null : formatMoney(c, 'EUR')
+})
+
+/** Sostituisce l'espressione con il suo risultato (se valida). */
+function resolveAmount() {
+  if (!amountIsExpr.value) return
+  const c = evaluateAmount(form.amount)
+  if (!Number.isNaN(c)) form.amount = (c / 100).toFixed(2).replace('.', ',')
+}
+
+const OPERATORS = [
+  { sym: '+', label: '+', aria: 'Più' },
+  { sym: '-', label: '−', aria: 'Meno' },
+  { sym: '*', label: '×', aria: 'Per' },
+  { sym: '/', label: '÷', aria: 'Diviso' },
+]
+function insertOperator(sym: string) {
+  const el = amountInput.value
+  const start = el?.selectionStart ?? form.amount.length
+  const end = el?.selectionEnd ?? form.amount.length
+  const text = ` ${sym} `
+  form.amount = (form.amount.slice(0, start) + text + form.amount.slice(end)).replace(/\s+/g, ' ').replace(/^ /, '')
+  const caret = Math.min(form.amount.length, start + text.length - (start === 0 ? 1 : 0))
+  requestAnimationFrame(() => {
+    el?.focus()
+    el?.setSelectionRange(caret, caret)
+  })
 }
 
 function draft(): EntryDraft {
@@ -279,8 +308,29 @@ const EXPENSE_TYPES: { value: ExpenseType; label: string; hint: string; emoji: s
       <label class="ef__amount">
         <span class="sr-only">Importo</span>
         <span class="ef__cur" aria-hidden="true">€</span>
-        <input v-model="form.amount" class="ef__amount-input num" inputmode="decimal" placeholder="0,00" autocomplete="off" required aria-label="Importo" />
+        <input
+          ref="amountInput"
+          v-model="form.amount"
+          class="ef__amount-input num"
+          inputmode="decimal"
+          placeholder="0,00"
+          autocomplete="off"
+          required
+          aria-label="Importo"
+          aria-describedby="ef-amount-hint"
+          @blur="resolveAmount"
+          @keydown.enter="resolveAmount"
+        />
       </label>
+      <div class="ef__calc">
+        <div class="ef__ops" role="group" aria-label="Operazioni">
+          <button v-for="o in OPERATORS" :key="o.sym" type="button" class="ef__op" :aria-label="o.aria" @mousedown.prevent @click="insertOperator(o.sym)">{{ o.label }}</button>
+        </div>
+        <span id="ef-amount-hint" class="ef__preview num" aria-live="polite">
+          <template v-if="amountPreview">= {{ amountPreview }}</template>
+          <template v-else-if="amountIsExpr">Espressione non valida</template>
+        </span>
+      </div>
 
       <div class="ef__grid">
         <div class="ef__field">
@@ -372,6 +422,18 @@ const EXPENSE_TYPES: { value: ExpenseType; label: string; hint: string; emoji: s
 .ef__amount-input { border: 0; outline: 0; background: none; font-size: 2.6rem; letter-spacing: -0.03em; width: 100%; max-width: 280px; text-align: center; padding: 0; }
 .ef__amount-input:focus-visible { outline: 0; }
 .ef__amount:focus-within { border-color: var(--ink); }
+.ef__calc { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: -8px; min-height: 32px; }
+/* Gli operatori servono solo su mobile (la tastiera numerica non li ha); su PC si scrivono da tastiera. */
+.ef__ops { display: none; gap: 6px; }
+@media (max-width: 520px), (pointer: coarse) {
+  .ef__ops { display: flex; }
+}
+.ef__op {
+  width: 34px; height: 30px; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--surface);
+  color: var(--text-secondary); font-size: 1.05rem; line-height: 1; cursor: pointer;
+}
+.ef__op:hover { background: var(--surface-2); color: var(--text-primary); }
+.ef__preview { margin-left: auto; font-size: 0.9rem; color: var(--text-muted); text-align: right; }
 .ef__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
 .ef__field { display: flex; flex-direction: column; gap: 5px; font-size: 0.82rem; color: var(--text-secondary); min-width: 0; }
 .ef__field .input { width: 100%; color: var(--text-primary); font-size: 0.95rem; }
