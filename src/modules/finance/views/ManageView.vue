@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { confirmDialog } from '@/core/ui/confirm'
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import UiButton from '@/core/ui/UiButton.vue'
 import UiIcon from '@/core/ui/UiIcon.vue'
@@ -60,10 +61,13 @@ function openAccount(a: AccountConfig | null, preset?: string) {
 }
 /** «+» su mobile: nella sezione Conti crea un conto, altrove resta «Aggiungi voce» del modulo. */
 usePrimaryAction(() => (props.section === 'accounts' ? { label: 'Nuovo conto', run: () => openAccount(null) } : null))
-function deleteAccount(a: AccountConfig) {
+async function deleteAccount(a: AccountConfig) {
   const n = ledger.usage('account', a.name)
-  const extra = n ? ` ${n} voci manuali lo usano e resteranno collegate al nome «${a.name}».` : ''
-  if (!window.confirm(`Rimuovere il conto «${a.name}» dalla configurazione?${extra}`)) return
+  const extra = n ? `
+
+${n} voci manuali lo usano e resteranno collegate al nome «${a.name}».` : ''
+  const ok = await confirmDialog({ title: 'Rimuovere il conto?', message: `Il conto «${a.name}» verrà tolto dalla configurazione.${extra}`, confirmLabel: 'Rimuovi', danger: true })
+  if (!ok) return
   ledger.removeAccount(a.id)
   flash(`Conto «${a.name}» rimosso.`)
 }
@@ -173,15 +177,24 @@ function commitSub(c: CategoryConfig, subId: string) {
   const v = editing.value.value
   if (attempt(() => ledger.renameSubcategory(c.id, subId, v))) editing.value = null
 }
-function deleteCategory(c: CategoryConfig) {
+async function deleteCategory(c: CategoryConfig) {
   const n = catCount(c)
-  const extra = n ? ` ${n} movimenti la usano: resteranno con questo nome, ma senza colore e configurazione.` : ''
-  if (!window.confirm(`Eliminare la categoria «${c.name}» e le sue ${c.subcategories.length} sotto-categorie?${extra}`)) return
+  const extra = n ? `
+
+${n} movimenti la usano: resteranno con questo nome, ma senza colore e configurazione.` : ''
+  const ok = await confirmDialog({
+    title: 'Eliminare la categoria?',
+    message: `Verranno eliminate la categoria «${c.name}» e le sue ${c.subcategories.length} sotto-categorie.${extra}`,
+    confirmLabel: 'Elimina',
+    danger: true,
+  })
+  if (!ok) return
   ledger.removeCategory(c.id)
   flash(`Categoria «${c.name}» eliminata.`)
 }
-function deleteSub(c: CategoryConfig, subId: string, name: string) {
-  if (!window.confirm(`Eliminare la sotto-categoria «${name}» da ${c.name}?`)) return
+async function deleteSub(c: CategoryConfig, subId: string, name: string) {
+  const ok = await confirmDialog({ title: 'Eliminare la sotto-categoria?', message: `La sotto-categoria «${name}» verrà eliminata da ${c.name}.`, confirmLabel: 'Elimina', danger: true })
+  if (!ok) return
   ledger.removeSubcategory(c.id, subId)
 }
 const iconOf = (c: CategoryConfig) => categoryIcon(ledger.state.config, c.name, c.kind)
@@ -190,8 +203,13 @@ function addSub(c: CategoryConfig) {
   const v = newSub.value[c.id] ?? ''
   if (attempt(() => ledger.addSubcategory(c.id, v))) newSub.value[c.id] = ''
 }
-function recolor() {
-  if (!window.confirm('Assegnare automaticamente un colore diverso a ogni categoria? I colori scelti a mano verranno sostituiti.')) return
+async function recolor() {
+  const ok = await confirmDialog({
+    title: 'Riassegnare i colori?',
+    message: 'Ogni categoria riceverà automaticamente un colore diverso. I colori scelti a mano verranno sostituiti.',
+    confirmLabel: 'Riassegna',
+  })
+  if (!ok) return
   ledger.recolorCategories()
   flash('Colori riassegnati: ogni categoria ha ora una tinta propria, le sotto-categorie ne usano le varianti.')
 }
@@ -242,11 +260,25 @@ async function importBackup(e: Event) {
   input.value = ''
   if (!file) return
   const text = await file.text()
-  if (!window.confirm('Sostituire conti, categorie e voci manuali attuali con quelli del backup?')) return
+  const ok = await confirmDialog({
+    title: 'Ripristinare il backup?',
+    message: 'Conti, categorie e voci manuali attuali verranno sostituiti con quelli del backup.',
+    confirmLabel: 'Ripristina',
+    danger: true,
+  })
+  if (!ok) return
   attempt(() => ledger.importJson(text), 'Backup ripristinato.')
 }
-function resetLedger() {
-  if (!window.confirm(`Eliminare tutte le ${ledger.state.entries.length} voci manuali e ripristinare conti e categorie predefiniti? L'operazione non si può annullare.`)) return
+async function resetLedger() {
+  const ok = await confirmDialog({
+    title: 'Ripristinare il registro?',
+    message: `Verranno eliminate tutte le ${ledger.state.entries.length} voci manuali e ripristinati conti e categorie predefiniti.
+
+L'operazione non si può annullare.`,
+    confirmLabel: 'Elimina tutto',
+    danger: true,
+  })
+  if (!ok) return
   ledger.reset()
   flash('Registro locale ripristinato.')
 }

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { confirmDialog } from '@/core/ui/confirm'
 /**
  * Dati di uno strumento di investimento (ETF, azione, obbligazione) necessari
  * al tracking giornaliero. Con `subcategory` null crea anche la sotto-categoria.
@@ -172,7 +173,14 @@ async function save() {
 }
 
 async function unlink() {
-  if (props.subcategory === null || !window.confirm('Rimuovere i dati dello strumento? La posizione resterà valutata al prezzo di acquisto.')) return
+  if (props.subcategory === null) return
+  const ok = await confirmDialog({
+    title: 'Rimuovere i dati dello strumento?',
+    message: 'La posizione resterà valutata al prezzo di acquisto.',
+    confirmLabel: 'Rimuovi',
+    danger: true,
+  })
+  if (!ok) return
   await inv.removeInstrumentData(subKey(props.category, props.subcategory))
   emit('close')
 }

@@ -25,7 +25,7 @@ onBeforeUnmount(() => el.value?.open && el.value.close())
 let keepOpen = false
 function onKeydownCapture(e: KeyboardEvent) {
   if (e.key !== 'Escape') return
-  keepOpen = !!el.value?.querySelector('[data-reka-popper-content-wrapper], .cb__pop, .ms__pop')
+  keepOpen = !!el.value?.querySelector('[data-reka-popper-content-wrapper], .cb__pop, .ms__pop, .ds__pop')
 }
 function onCancel() {
   if (keepOpen) {

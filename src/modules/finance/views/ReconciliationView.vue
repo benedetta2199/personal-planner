@@ -167,10 +167,11 @@ async function run(item: ReconciliationItem, action: () => Promise<void> | void)
 
 const useStatementDate = (item: ReconciliationItem) => run(item, () => store.editOperation(item.sides[0].op, draftOf(item.sides[0].op, { date: item.statements[0].date })))
 const useStatementAmount = (item: ReconciliationItem) => run(item, () => store.editOperation(item.sides[0].op, draftOf(item.sides[0].op, { amount: item.statements[0].amount })))
-function removeFromSheet(item: ReconciliationItem) {
+async function removeFromSheet(item: ReconciliationItem) {
   const op = item.sides[0].op
   const what = `${formatDate(op.date)} · ${formatMoney(op.amount, op.currency)}${op.description ? ` · ${op.description}` : ''}`
-  if (!window.confirm(`Eliminare dal foglio Google questo movimento?\n\n${what}`)) return
+  const ok = await confirmDialog({ title: 'Eliminare dal foglio Google?', message: `${what}\n\nIl movimento verrà eliminato dal foglio Google.`, confirmLabel: 'Elimina', danger: true })
+  if (!ok) return
   void run(item, () => store.deleteOperation(op))
 }
 

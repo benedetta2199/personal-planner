@@ -3,6 +3,8 @@ import { computed, reactive, ref, watch } from 'vue'
 import UiDialog from '@/core/ui/UiDialog.vue'
 import UiButton from '@/core/ui/UiButton.vue'
 import UiAlert from '@/core/ui/UiAlert.vue'
+import UiConfirmDialog from '@/core/ui/UiConfirmDialog.vue'
+import DescriptionInput from './DescriptionInput.vue'
 import UiCombobox, { type ComboOption } from '@/core/ui/UiCombobox.vue'
 import UiDatePicker from '@/core/ui/UiDatePicker.vue'
 import { formatDate, formatMoney, todayIso } from '@/core/utils/format'
@@ -243,17 +245,55 @@ async function save(addAnother = false) {
   }
 }
 
-async function remove() {
+// Suggerimenti per la descrizione: quelle già usate per lo stesso tipo di voce, le più frequenti e recenti prima.
+interface DescSuggestion { text: string; hint?: string; category: string; subcategory: string; count: number; date: string }
+const descriptionSuggestions = computed<DescSuggestion[]>(() => {
+  const byKey = new Map<string, DescSuggestion>()
+  for (const op of store.dataset.operations) {
+    const text = op.description.trim()
+    if (!text || op.kind !== form.kind || op.id === props.operation?.id) continue
+    const k = norm(text)
+    const s = byKey.get(k)
+    if (!s) byKey.set(k, { text, category: op.category, subcategory: op.subcategory, count: 1, date: op.date })
+    else {
+      s.count++
+      if (op.date > s.date) Object.assign(s, { text, category: op.category, subcategory: op.subcategory, date: op.date })
+    }
+  }
+  return [...byKey.values()]
+    .map((s) => ({ ...s, hint: form.kind === 'transfer' || !s.category ? undefined : [plainName(s.category), s.subcategory && plainName(s.subcategory)].filter(Boolean).join(' › ') }))
+    .sort((a, b) => b.count - a.count || b.date.localeCompare(a.date))
+})
+/** Scegliendo una descrizione già usata si propongono categoria e sotto-categoria, se non ancora scelte. */
+function onDescriptionPick(s: { text: string }) {
+  const hit = descriptionSuggestions.value.find((x) => x.text === s.text)
+  if (!hit || form.kind === 'transfer' || form.category || !hit.category) return
+  form.category = hit.category
+  form.subcategory = hit.subcategory
+}
+
+const confirmDelete = ref(false)
+const deleteWhere = computed(() =>
+  sheetRow.value && props.operation ? `Verrà eliminata anche dal foglio Google (scheda ${props.operation.source.sheet}, riga ${props.operation.source.row}).` : '',
+)
+watch(() => props.open, (o) => !o && (confirmDelete.value = false))
+
+function remove() {
   if (!props.operation || busy.value) return
-  const where = sheetRow.value ? ` dal foglio Google (scheda ${props.operation.source.sheet}, riga ${props.operation.source.row})` : ''
-  if (!window.confirm(`Eliminare definitivamente questa voce${where}?`)) return
+  confirmDelete.value = true
+}
+
+async function doRemove() {
+  if (!props.operation || busy.value) return
   busy.value = true
   error.value = null
   try {
     await store.deleteOperation(props.operation)
+    confirmDelete.value = false
     emit('saved', null)
     emit('close')
   } catch (e) {
+    confirmDelete.value = false
     error.value = (e as Error).message
   } finally {
     busy.value = false
@@ -387,7 +427,7 @@ const EXPENSE_TYPES: { value: ExpenseType; label: string; hint: string; emoji: s
 
       <label class="ef__field">
         <span>Descrizione</span>
-        <input v-model="form.description" class="input" placeholder="Es. Spesa Esselunga" autocomplete="off" />
+        <DescriptionInput v-model="form.description" :suggestions="descriptionSuggestions" placeholder="Es. Spesa Esselunga" @pick="onDescriptionPick" />
       </label>
 
       <p v-if="sheetRow && operation" class="muted small">
@@ -408,6 +448,22 @@ const EXPENSE_TYPES: { value: ExpenseType; label: string; hint: string; emoji: s
       </template>
     </template>
   </UiDialog>
+
+  <UiConfirmDialog
+    :open="confirmDelete"
+    title="Eliminare la voce?"
+    confirm-label="Elimina"
+    danger
+    :busy="busy"
+    @confirm="doRemove"
+    @cancel="confirmDelete = false"
+  >
+    <p v-if="operation">
+      <strong>{{ operation.description || plainName(operation.category) || 'Voce senza descrizione' }}</strong>
+      · {{ formatMoney(operation.amount, operation.currency) }} · {{ formatDate(operation.date) }}
+    </p>
+    <p>L'operazione non si può annullare. {{ deleteWhere }}</p>
+  </UiConfirmDialog>
 </template>
 
 <style scoped>

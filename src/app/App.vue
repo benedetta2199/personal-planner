@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import UiIcon from '@/core/ui/UiIcon.vue'
 import UiAlert from '@/core/ui/UiAlert.vue'
 import UiButton from '@/core/ui/UiButton.vue'
+import UiConfirmHost from '@/core/ui/UiConfirmHost.vue'
 import { modules } from './modules'
 import { useCloudSync } from './sync/cloudSync'
 import { useAuthStore } from './auth/authStore'
@@ -165,6 +166,7 @@ function pick(item: PrimaryMenuItem) {
       </template>
     </main>
   </div>
+  <UiConfirmHost />
 </template>
 
 <style scoped>

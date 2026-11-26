@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { confirmDialog } from '@/core/ui/confirm'
 /** Elenco dei piani di accumulo (PAC) con creazione, modifica, pausa ed eliminazione. */
 import { computed, ref } from 'vue'
 import UiButton from '@/core/ui/UiButton.vue'
@@ -31,8 +32,9 @@ function editPlan(plan: InvestmentPlan) {
   editing.value = plan
   open.value = true
 }
-function deletePlan(plan: InvestmentPlan) {
-  if (!window.confirm(`Eliminare il PAC su «${planName(plan)}»? Gli addebiti già registrati restano.`)) return
+async function deletePlan(plan: InvestmentPlan) {
+  const ok = await confirmDialog({ title: 'Eliminare il PAC?', message: `PAC su «${planName(plan)}». Gli addebiti già registrati restano.`, confirmLabel: 'Elimina', danger: true })
+  if (!ok) return
   ledger.removePlan(plan.id)
 }
 defineExpose({ newPlan })
