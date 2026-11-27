@@ -268,10 +268,10 @@ const descriptionSuggestions = computed<DescSuggestion[]>(() => {
     .map((s) => ({ ...s, hint: form.kind === 'transfer' || !s.category ? undefined : [plainName(s.category), s.subcategory && plainName(s.subcategory)].filter(Boolean).join(' › ') }))
     .sort((a, b) => b.count - a.count || b.date.localeCompare(a.date))
 })
-/** Scegliendo una descrizione già usata si propongono categoria e sotto-categoria, se non ancora scelte. */
+/** Scegliendo una descrizione già usata si impostano (anche sovrascrivendo) la sua categoria e sotto-categoria. */
 function onDescriptionPick(s: { text: string }) {
   const hit = descriptionSuggestions.value.find((x) => x.text === s.text)
-  if (!hit || form.kind === 'transfer' || form.category || !hit.category) return
+  if (!hit || form.kind === 'transfer' || !hit.category) return
   form.category = hit.category
   form.subcategory = hit.subcategory
 }
