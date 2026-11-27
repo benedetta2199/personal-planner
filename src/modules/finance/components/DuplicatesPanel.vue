@@ -40,9 +40,12 @@ function check() {
 function sourceLabel(op: Operation) {
   return ledger.isManual(op.id) ? "Inserita dall'app" : `Foglio ${op.source.sheet}, riga ${op.source.row}`
 }
+/** Categoria e sotto-categoria (uguali in tutto il gruppo): mostrate nell'intestazione. */
+function categoryLabel(op: Operation) {
+  return [plainName(op.category), op.subcategory && plainName(op.subcategory)].filter(Boolean).join(' › ')
+}
 function where(op: Operation) {
-  if (op.kind === 'transfer') return `${op.account} → ${op.toAccount}`
-  return [op.account, op.category && plainName(op.category), op.subcategory && plainName(op.subcategory)].filter(Boolean).join(' · ')
+  return op.kind === 'transfer' ? `${op.account} → ${op.toAccount}` : op.account
 }
 function opSummary(op: Operation) {
   return `${formatDate(op.date)} · ${formatMoney(op.amount, op.currency)}${op.description ? ` · ${op.description}` : ''}\n${sourceLabel(op)}`
@@ -111,7 +114,7 @@ function resetIgnored() {
   <div class="dup">
     <div class="row">
       <UiButton icon="search" :disabled="!!busy" @click="check">{{ checked ? 'Controlla di nuovo' : 'Cerca righe duplicate' }}</UiButton>
-      <span class="muted small">Stessa data e stesso importo (e stesso tipo di movimento).</span>
+      <span class="muted small">Stessa data, importo, categoria e sotto-categoria (e stesso tipo di movimento).</span>
     </div>
 
     <UiAlert v-if="error" tone="critical">{{ error }}</UiAlert>
@@ -129,7 +132,7 @@ function resetIgnored() {
         <article v-for="g in groups" :key="g.key" class="dup__group" :aria-busy="busy === g.key">
           <header class="dup__head">
             <strong class="num">{{ formatMoney(g.amount, g.currency) }}</strong>
-            <span class="muted">{{ KIND_LABEL[g.kind] }} · {{ formatDate(g.date) }}</span>
+            <span class="muted">{{ KIND_LABEL[g.kind] }} · {{ formatDate(g.date) }}<template v-if="g.operations[0].category"> · {{ categoryLabel(g.operations[0]) }}</template></span>
           </header>
           <ul class="dup__list">
             <li v-for="(op, i) in g.operations" :key="op.id" class="dup__op">
